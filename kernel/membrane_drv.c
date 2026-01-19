@@ -71,8 +71,8 @@ static const struct drm_connector_helper_funcs membrane_connector_helper_funcs =
 	.get_modes = membrane_connector_get_modes,
 };
 
-static enum drm_connector_status membrane_connector_detect(struct drm_connector *connector,
-							   bool force)
+static enum drm_connector_status
+membrane_connector_detect(struct drm_connector *connector, bool force)
 {
 	return connector_status_connected;
 }
@@ -104,9 +104,9 @@ static int membrane_load(struct membrane_device *mdev)
 	dev->mode_config.funcs = &membrane_mode_config_funcs;
 
 	ret = drm_universal_plane_init(dev, &mdev->plane, 0,
-					   &membrane_plane_funcs, membrane_formats,
-					   ARRAY_SIZE(membrane_formats),
-					   DRM_PLANE_TYPE_PRIMARY, NULL);
+				       &membrane_plane_funcs, membrane_formats,
+				       ARRAY_SIZE(membrane_formats),
+				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (ret) {
 		membrane_debug("drm_universal_plane_init failed: %d", ret);
 		return ret;
@@ -114,7 +114,7 @@ static int membrane_load(struct membrane_device *mdev)
 
 	drm_crtc_helper_add(&mdev->crtc, &membrane_crtc_helper_funcs);
 	ret = drm_crtc_init_with_planes(dev, &mdev->crtc, &mdev->plane, NULL,
-						&membrane_crtc_funcs, NULL);
+					&membrane_crtc_funcs, NULL);
 	if (ret) {
 		membrane_debug("drm_crtc_init_with_planes failed: %d", ret);
 		return ret;
@@ -140,9 +140,11 @@ static int membrane_load(struct membrane_device *mdev)
 	drm_connector_helper_add(&mdev->connector,
 				 &membrane_connector_helper_funcs);
 
-	ret = drm_mode_connector_attach_encoder(&mdev->connector, &mdev->encoder);
+	ret = drm_mode_connector_attach_encoder(&mdev->connector,
+						&mdev->encoder);
 	if (ret) {
-		membrane_debug("drm_mode_connector_attach_encoder failed: %d", ret);
+		membrane_debug("drm_mode_connector_attach_encoder failed: %d",
+			       ret);
 		return ret;
 	}
 
@@ -158,13 +160,13 @@ static int membrane_load(struct membrane_device *mdev)
 
 static const struct file_operations membrane_fops = {
 	.owner = THIS_MODULE,
-	.open		= drm_open,
-	.release	= drm_release,
-	.unlocked_ioctl	= drm_ioctl,
-	.compat_ioctl	= drm_compat_ioctl,
-	.poll		= drm_poll,
-	.read		= drm_read,
-	.llseek		= noop_llseek,
+	.open = drm_open,
+	.release = drm_release,
+	.unlocked_ioctl = drm_ioctl,
+	.compat_ioctl = drm_compat_ioctl,
+	.poll = drm_poll,
+	.read = drm_read,
+	.llseek = noop_llseek,
 };
 
 static struct drm_driver membrane_driver = {
@@ -193,7 +195,7 @@ static int membrane_probe(struct platform_device *pdev)
 	}
 
 	drm = &mdev->dev;
-	
+
 	membrane_debug("calling drm_dev_init");
 	ret = drm_dev_init(drm, &membrane_driver, &pdev->dev);
 	if (ret) {
@@ -260,13 +262,14 @@ static int __init membrane_init(void)
 		return ret;
 	}
 
-	membrane_pdev = platform_device_register_simple("membrane", -1, NULL, 0);
+	membrane_pdev =
+		platform_device_register_simple("membrane", -1, NULL, 0);
 	if (IS_ERR(membrane_pdev)) {
 		membrane_debug("platform_device_register_simple failed");
 		platform_driver_unregister(&membrane_platform_driver);
 		return PTR_ERR(membrane_pdev);
 	}
-	
+
 	return 0;
 }
 
