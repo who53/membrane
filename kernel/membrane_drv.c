@@ -61,6 +61,7 @@ static int membrane_connector_get_modes(struct drm_connector *connector)
 
 	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
 	drm_mode_set_name(mode);
+	drm_mode_probed_add(connector, mode);
 
 	membrane_debug("exit");
 	return 1;
@@ -70,8 +71,17 @@ static const struct drm_connector_helper_funcs membrane_connector_helper_funcs =
 	.get_modes = membrane_connector_get_modes,
 };
 
+static enum drm_connector_status membrane_connector_detect(struct drm_connector *connector,
+							   bool force)
+{
+	return connector_status_connected;
+}
+
 static const struct drm_connector_funcs membrane_connector_funcs = {
-	// TODO ?
+	.dpms = drm_helper_connector_dpms,
+	.detect = membrane_connector_detect,
+	.fill_modes = drm_helper_probe_single_connector_modes,
+	.destroy = drm_connector_cleanup,
 };
 
 static const uint32_t membrane_formats[] = {
