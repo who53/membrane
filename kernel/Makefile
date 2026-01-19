@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+membrane-y := membrane_drv.o
+
+obj-$(CONFIG_DRM_MEMBRANE)+= membrane.o
