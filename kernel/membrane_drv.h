@@ -19,6 +19,8 @@ struct membrane_device {
 	struct drm_connector connector;
 };
 
+#define membrane_debug(fmt, ...) pr_err("membrane: %s: " fmt "\n", __func__, ##__VA_ARGS__)
+
 #if KERNEL_VERSION(4, 15, 0) > LINUX_VERSION_CODE
 static inline void drm_dev_put(struct drm_device *dev)
 {
