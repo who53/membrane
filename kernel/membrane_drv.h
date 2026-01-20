@@ -25,6 +25,7 @@ struct membrane_device {
 	struct drm_connector connector;
 
 	DECLARE_KFIFO(kfifo, struct membrane_k2u_msg, MEMBRANE_FIFO_SIZE);
+	DECLARE_KFIFO(fd_fifo, struct file *, MEMBRANE_FIFO_SIZE);
 	wait_queue_head_t rw_wq;
 	spinlock_t rw_lock;
 
@@ -54,6 +55,12 @@ int membrane_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 int membrane_prime_fd_to_handle(struct drm_device *dev,
 				struct drm_file *file_priv, int prime_fd,
 				uint32_t *handle);
+int membrane_pop_fd(struct drm_device *dev, void *data, struct drm_file *file);
+
+static const struct drm_ioctl_desc membrane_ioctls[] = {
+	DRM_IOCTL_DEF_DRV(MEMBRANE_POP_FD, membrane_pop_fd,
+			  DRM_UNLOCKED | DRM_RENDER_ALLOW),
+};
 
 #define membrane_debug(fmt, ...) \
 	pr_err("membrane: %s: " fmt "\n", __func__, ##__VA_ARGS__)

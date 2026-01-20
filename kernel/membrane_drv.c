@@ -103,6 +103,7 @@ static int membrane_load(struct membrane_device *mdev)
 
 	spin_lock_init(&mdev->rw_lock);
 	INIT_KFIFO(mdev->kfifo);
+	INIT_KFIFO(mdev->fd_fifo);
 	init_waitqueue_head(&mdev->rw_wq);
 
 	mdev->w = 1920;
@@ -193,6 +194,8 @@ static struct drm_driver membrane_driver = {
 	.minor = 0,
 	.patchlevel = 0,
 	.prime_fd_to_handle = membrane_prime_fd_to_handle,
+	.ioctls = membrane_ioctls,
+	.num_ioctls = ARRAY_SIZE(membrane_ioctls),
 };
 
 static int membrane_probe(struct platform_device *pdev)
