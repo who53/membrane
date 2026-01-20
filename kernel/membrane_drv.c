@@ -3,14 +3,11 @@
 
 #include <linux/module.h>
 #include <linux/platform_device.h>
-#include <drm/drm_atomic_helper.h>
-#include <drm/drm_crtc_helper.h>
-#include <drm/drmP.h>
-#include <drm/drm_plane_helper.h>
+
 #include "membrane_drv.h"
 
 static const struct drm_mode_config_funcs membrane_mode_config_funcs = {
-	.fb_create = NULL, // TODO
+	.fb_create = membrane_fb_create,
 };
 
 static const struct drm_plane_funcs membrane_plane_funcs = {
@@ -20,17 +17,17 @@ static const struct drm_plane_funcs membrane_plane_funcs = {
 };
 
 static const struct drm_crtc_helper_funcs membrane_crtc_helper_funcs = {
-	.enable = NULL, // TODO
-	.disable = NULL, // TODO
+	.enable = membrane_crtc_enable,
+	.disable = membrane_crtc_disable,
 };
 
 static const struct drm_crtc_funcs membrane_crtc_funcs = {
-	.cursor_set2 = NULL, // TODO
-	.cursor_move = NULL, // TODO
-	.gamma_set = NULL, // TODO
+	.cursor_set2 = membrane_cursor_set2,
+	.cursor_move = membrane_cursor_move,
+	.gamma_set = membrane_gamma_set,
 	.destroy = drm_crtc_cleanup,
-	.set_config = NULL, // TODO
-	.page_flip = NULL, // TODO
+	.set_config = membrane_set_config,
+	.page_flip = membrane_page_flip,
 };
 
 static const struct drm_encoder_funcs membrane_encoder_funcs = {
@@ -39,6 +36,9 @@ static const struct drm_encoder_funcs membrane_encoder_funcs = {
 
 static int membrane_connector_get_modes(struct drm_connector *connector)
 {
+	struct drm_device *dev = connector->dev;
+	struct membrane_device *mdev =
+		container_of(dev, struct membrane_device, dev);
 	struct drm_display_mode *mode;
 
 	membrane_debug("entry");
@@ -49,15 +49,15 @@ static int membrane_connector_get_modes(struct drm_connector *connector)
 		return 0;
 	}
 
-	mode->hdisplay = 800; // TODO
-	mode->hsync_start = mode->hdisplay + 60; // TODO
-	mode->hsync_end = mode->hsync_start + 14; // TODO
-	mode->htotal = mode->hsync_end + 170; // TODO
-	mode->vdisplay = 1280; // TODO
-	mode->vsync_start = mode->vdisplay + 32, // TODO
-		mode->vsync_end = mode->vsync_start + 8, // TODO
-		mode->vtotal = mode->vsync_end + 184, // TODO
-		mode->clock = mode->htotal * mode->vtotal * 60 / 1000; // TODO
+	mode->hdisplay = mdev->w;
+	mode->hsync_start = mode->hdisplay + 60;
+	mode->hsync_end = mode->hsync_start + 14;
+	mode->htotal = mode->hsync_end + 170;
+	mode->vdisplay = mdev->h;
+	mode->vsync_start = mode->vdisplay + 32,
+	mode->vsync_end = mode->vsync_start + 8,
+	mode->vtotal = mode->vsync_end + 184,
+	mode->clock = mode->htotal * mode->vtotal * mdev->r / 1000;
 
 	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
 	drm_mode_set_name(mode);
@@ -94,6 +94,14 @@ static int membrane_load(struct membrane_device *mdev)
 	int ret;
 
 	membrane_debug("entry");
+
+	spin_lock_init(&mdev->rw_lock);
+	INIT_KFIFO(mdev->kfifo);
+	init_waitqueue_head(&mdev->rw_wq);
+
+	mdev->w = 1920;
+	mdev->h = 1080;
+	mdev->r = 60;
 
 	drm_mode_config_init(dev);
 
@@ -165,7 +173,8 @@ static const struct file_operations membrane_fops = {
 	.unlocked_ioctl = drm_ioctl,
 	.compat_ioctl = drm_compat_ioctl,
 	.poll = drm_poll,
-	.read = drm_read,
+	.read = membrane_read,
+	.write = membrane_write,
 	.llseek = noop_llseek,
 };
 
@@ -178,6 +187,7 @@ static struct drm_driver membrane_driver = {
 	.major = 1,
 	.minor = 0,
 	.patchlevel = 0,
+	.prime_fd_to_handle = membrane_prime_fd_to_handle,
 };
 
 static int membrane_probe(struct platform_device *pdev)
