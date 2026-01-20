@@ -15,12 +15,42 @@ membrane_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 
 void membrane_crtc_enable(struct drm_crtc *crtc)
 {
+	struct membrane_device *mdev =
+		container_of(crtc->dev, struct membrane_device, dev);
+	struct membrane_k2u_msg ev = {
+		.flags = MEMBRANE_DPMS_UPDATED,
+		.dpms = 0,
+	};
+	unsigned long flags;
+
 	membrane_debug("%s", __func__);
+
+	spin_lock_irqsave(&mdev->rw_lock, flags);
+	if (!kfifo_is_full(&mdev->kfifo))
+		kfifo_put(&mdev->kfifo, ev);
+	spin_unlock_irqrestore(&mdev->rw_lock, flags);
+
+	wake_up_interruptible(&mdev->rw_wq);
 }
 
 void membrane_crtc_disable(struct drm_crtc *crtc)
 {
+	struct membrane_device *mdev =
+		container_of(crtc->dev, struct membrane_device, dev);
+	struct membrane_k2u_msg ev = {
+		.flags = MEMBRANE_DPMS_UPDATED,
+		.dpms = 1,
+	};
+	unsigned long flags;
+
 	membrane_debug("%s", __func__);
+
+	spin_lock_irqsave(&mdev->rw_lock, flags);
+	if (!kfifo_is_full(&mdev->kfifo))
+		kfifo_put(&mdev->kfifo, ev);
+	spin_unlock_irqrestore(&mdev->rw_lock, flags);
+
+	wake_up_interruptible(&mdev->rw_wq);
 }
 
 int membrane_cursor_set2(struct drm_crtc *crtc, struct drm_file *file_priv,

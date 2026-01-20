@@ -41,8 +41,7 @@ static int membrane_connector_get_modes(struct drm_connector *connector)
 		container_of(dev, struct membrane_device, dev);
 	struct drm_display_mode *mode;
 
-	membrane_debug("entry");
-
+	membrane_debug("%s", __func__);
 	mode = drm_mode_create(connector->dev);
 	if (!mode) {
 		membrane_debug("drm_mode_create failed");
@@ -63,17 +62,26 @@ static int membrane_connector_get_modes(struct drm_connector *connector)
 	drm_mode_set_name(mode);
 	drm_mode_probed_add(connector, mode);
 
-	membrane_debug("exit");
 	return 1;
+}
+
+static enum drm_mode_status
+membrane_connector_mode_valid(struct drm_connector *connector,
+			      struct drm_display_mode *mode)
+{
+	membrane_debug("%s", __func__);
+	return MODE_OK;
 }
 
 static const struct drm_connector_helper_funcs membrane_connector_helper_funcs = {
 	.get_modes = membrane_connector_get_modes,
+	.mode_valid = membrane_connector_mode_valid,
 };
 
 static enum drm_connector_status
 membrane_connector_detect(struct drm_connector *connector, bool force)
 {
+	membrane_debug("%s", __func__);
 	return connector_status_connected;
 }
 
@@ -92,8 +100,6 @@ static int membrane_load(struct membrane_device *mdev)
 {
 	struct drm_device *dev = &mdev->dev;
 	int ret;
-
-	membrane_debug("entry");
 
 	spin_lock_init(&mdev->rw_lock);
 	INIT_KFIFO(mdev->kfifo);
@@ -162,7 +168,6 @@ static int membrane_load(struct membrane_device *mdev)
 		return ret;
 	}
 
-	membrane_debug("exit success");
 	return 0;
 }
 
@@ -196,7 +201,7 @@ static int membrane_probe(struct platform_device *pdev)
 	struct drm_device *drm;
 	int ret;
 
-	membrane_debug("entry");
+	membrane_debug("%s", __func__);
 
 	mdev = devm_kzalloc(&pdev->dev, sizeof(*mdev), GFP_KERNEL);
 	if (!mdev) {
@@ -240,13 +245,11 @@ err_free:
 static int membrane_remove(struct platform_device *pdev)
 {
 	struct drm_device *drm = platform_get_drvdata(pdev);
-
-	membrane_debug("entry");
+	membrane_debug("%s", __func__);
 
 	drm_dev_unregister(drm);
 	drm_dev_put(drm);
 
-	membrane_debug("exit");
 	return 0;
 }
 
@@ -264,7 +267,7 @@ static int __init membrane_init(void)
 {
 	int ret;
 
-	membrane_debug("entry");
+	membrane_debug("%s", __func__);
 
 	ret = platform_driver_register(&membrane_platform_driver);
 	if (ret) {
@@ -285,7 +288,7 @@ static int __init membrane_init(void)
 
 static void __exit membrane_exit(void)
 {
-	membrane_debug("exit");
+	membrane_debug("%s", __func__);
 	platform_device_unregister(membrane_pdev);
 	platform_driver_unregister(&membrane_platform_driver);
 }

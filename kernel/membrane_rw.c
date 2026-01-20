@@ -3,7 +3,6 @@
 
 #include <linux/fs.h>
 #include <linux/uaccess.h>
-#include <linux/random.h>
 #include <linux/kfifo.h>
 
 #include "membrane_drv.h"
@@ -18,6 +17,7 @@ ssize_t membrane_read(struct file *f, char __user *buf, size_t len, loff_t *off)
 	unsigned long flags;
 	int ret;
 
+	membrane_debug("%s", __func__);
 	if (len < sizeof(ev))
 		return -EINVAL;
 
@@ -47,10 +47,10 @@ ssize_t membrane_write(struct file *f, const char __user *buf, size_t len,
 	struct membrane_device *mdev =
 		container_of(dev, struct membrane_device, dev);
 	struct membrane_u2k_cfg cfg;
-	struct membrane_k2u_msg ev;
 	unsigned long flags;
 	bool mode_changed = false;
 
+	membrane_debug("%s", __func__);
 	if (len != sizeof(cfg))
 		return -EINVAL;
 
@@ -66,16 +66,7 @@ ssize_t membrane_write(struct file *f, const char __user *buf, size_t len,
 		mode_changed = true;
 	}
 
-	ev.flags = MEMBRANE_BUF_ID_UPDATED | MEMBRANE_DPMS_UPDATED;
-	ev.buf_id = get_random_int();
-	ev.dpms = get_random_int();
-
-	if (!kfifo_is_full(&mdev->kfifo))
-		kfifo_put(&mdev->kfifo, ev);
-
 	spin_unlock_irqrestore(&mdev->rw_lock, flags);
-
-	wake_up_interruptible(&mdev->rw_wq);
 
 	if (mode_changed)
 		drm_kms_helper_hotplug_event(&mdev->dev);
