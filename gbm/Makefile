@@ -2,10 +2,10 @@ CC       := gcc
 TARGET   := membrane_gbm.so
 SRC      := membrane.c
 
-PKG_DEPS := gbm
+PKG_DEPS := gbm libgralloc
 
 CFLAGS   := $(shell pkg-config --cflags $(PKG_DEPS))
-CFLAGS   += -fPIC -Wall -Wextra -O3 -shared
+CFLAGS   += -fPIC -Wall -Wextra -O3 -shared -D_GNU_SOURCE
 LDLIBS   := $(shell pkg-config --libs $(PKG_DEPS))
 
 RM       := rm -f
