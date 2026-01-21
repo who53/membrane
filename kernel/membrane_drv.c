@@ -101,10 +101,10 @@ static int membrane_load(struct membrane_device *mdev)
 	struct drm_device *dev = &mdev->dev;
 	int ret;
 
-	spin_lock_init(&mdev->rw_lock);
-	INIT_KFIFO(mdev->kfifo);
+	spin_lock_init(&mdev->lock);
+	spin_lock_init(&mdev->idr_lock);
+	idr_init(&mdev->handle_idr);
 	INIT_KFIFO(mdev->fd_fifo);
-	init_waitqueue_head(&mdev->rw_wq);
 
 	mdev->w = 1920;
 	mdev->h = 1080;
@@ -152,6 +152,8 @@ static int membrane_load(struct membrane_device *mdev)
 		return ret;
 	}
 
+	mdev->connector.polled = DRM_CONNECTOR_POLL_CONNECT |
+				 DRM_CONNECTOR_POLL_DISCONNECT;
 	drm_connector_helper_add(&mdev->connector,
 				 &membrane_connector_helper_funcs);
 
@@ -185,13 +187,12 @@ static const struct file_operations membrane_fops = {
 	.unlocked_ioctl = drm_ioctl,
 	.compat_ioctl = drm_compat_ioctl,
 	.poll = drm_poll,
-	.read = membrane_read,
-	.write = membrane_write,
+	.read = drm_read,
 	.llseek = noop_llseek,
 };
 
 static struct drm_driver membrane_driver = {
-	.driver_features = DRIVER_MODESET | DRIVER_GEM,
+	.driver_features = DRIVER_MODESET | DRIVER_PRIME | DRIVER_GEM,
 	.fops = &membrane_fops,
 	.name = "membrane",
 	.desc = "membrane",

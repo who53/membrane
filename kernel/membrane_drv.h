@@ -17,6 +17,12 @@
 
 #define MEMBRANE_FIFO_SIZE 64
 
+struct membrane_framebuffer {
+	struct drm_framebuffer base;
+	struct file *files[4];
+	uint32_t handles[4];
+};
+
 struct membrane_device {
 	struct drm_device dev;
 	struct drm_plane plane;
@@ -24,19 +30,26 @@ struct membrane_device {
 	struct drm_encoder encoder;
 	struct drm_connector connector;
 
-	DECLARE_KFIFO(kfifo, struct membrane_k2u_msg, MEMBRANE_FIFO_SIZE);
 	DECLARE_KFIFO(fd_fifo, struct file *, MEMBRANE_FIFO_SIZE);
-	wait_queue_head_t rw_wq;
-	spinlock_t rw_lock;
+	spinlock_t lock;
+
+	struct idr handle_idr;
+	spinlock_t idr_lock;
 
 	int w, h, r;
 	int buf_id;
 };
 
-ssize_t membrane_read(struct file *f, char __user *buf, size_t len,
-		      loff_t *off);
-ssize_t membrane_write(struct file *f, const char __user *buf, size_t len,
-		       loff_t *off);
+int membrane_config(struct drm_device *dev, void *data,
+		    struct drm_file *file_priv);
+void membrane_send_event(struct membrane_device *mdev,
+			 struct membrane_k2u_msg *msg);
+
+static inline struct membrane_framebuffer *
+to_membrane_framebuffer(struct drm_framebuffer *fb)
+{
+	return container_of(fb, struct membrane_framebuffer, base);
+}
 
 struct drm_framebuffer *
 membrane_fb_create(struct drm_device *dev, struct drm_file *file_priv,
@@ -63,6 +76,7 @@ int membrane_pop_fd(struct drm_device *dev, void *data, struct drm_file *file);
 static const struct drm_ioctl_desc membrane_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(MEMBRANE_POP_FD, membrane_pop_fd,
 			  DRM_UNLOCKED | DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(MEMBRANE_CONFIG, membrane_config, DRM_UNLOCKED),
 };
 
 #define membrane_debug(fmt, ...) \
