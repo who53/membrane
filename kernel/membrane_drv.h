@@ -55,6 +55,9 @@ int membrane_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 int membrane_prime_fd_to_handle(struct drm_device *dev,
 				struct drm_file *file_priv, int prime_fd,
 				uint32_t *handle);
+int membrane_prime_handle_to_fd(struct drm_device *dev,
+				struct drm_file *file_priv, uint32_t handle,
+				uint32_t flags, int *prime_fd);
 int membrane_pop_fd(struct drm_device *dev, void *data, struct drm_file *file);
 
 static const struct drm_ioctl_desc membrane_ioctls[] = {

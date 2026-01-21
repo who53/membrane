@@ -200,6 +200,7 @@ static struct drm_driver membrane_driver = {
 	.minor = 0,
 	.patchlevel = 0,
 	.prime_fd_to_handle = membrane_prime_fd_to_handle,
+	.prime_handle_to_fd = membrane_prime_handle_to_fd,
 	.ioctls = membrane_ioctls,
 	.num_ioctls = ARRAY_SIZE(membrane_ioctls),
 };

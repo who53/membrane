@@ -169,6 +169,16 @@ int membrane_prime_fd_to_handle(struct drm_device *dev,
 	return 0;
 }
 
+int membrane_prime_handle_to_fd(struct drm_device *dev,
+				struct drm_file *file_priv, uint32_t handle,
+				uint32_t flags, int *prime_fd)
+{
+	(void)*dev, (void)*file_priv, (void)handle, (void)flags,
+		(void)*prime_fd;
+	pr_err("membrane: %s shouldnt get called", __func__);
+	return 0;
+}
+
 int membrane_pop_fd(struct drm_device *dev, void *data, struct drm_file *file)
 {
 	struct membrane_device *mdev =
