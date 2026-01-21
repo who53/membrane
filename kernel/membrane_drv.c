@@ -169,6 +169,12 @@ static int membrane_load(struct membrane_device *mdev)
 		return ret;
 	}
 
+	ret = drm_vblank_init(dev, 1);
+	if (ret) {
+		membrane_debug("drm_vblank_init failed: %d", ret);
+		return ret;
+	}
+
 	return 0;
 }
 
@@ -185,7 +191,7 @@ static const struct file_operations membrane_fops = {
 };
 
 static struct drm_driver membrane_driver = {
-	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_ATOMIC,
+	.driver_features = DRIVER_MODESET | DRIVER_GEM,
 	.fops = &membrane_fops,
 	.name = "membrane",
 	.desc = "membrane",
