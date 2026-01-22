@@ -107,7 +107,7 @@ static struct gbm_bo *membrane_bo_create(struct gbm_device *gbm, uint32_t width,
 	}
 
 	bo->handle = handle;
-	bo->base.v0.stride = stride;
+	bo->base.v0.stride = stride * 4;
 
 	bo->meta_fd = -1;
 
