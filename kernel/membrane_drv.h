@@ -12,10 +12,19 @@
 #include <linux/version.h>
 #include <linux/wait.h>
 #include <linux/spinlock.h>
-#include <linux/kfifo.h>
+#include <linux/list.h>
 #include "uapi/membrane.h"
 
-#define MEMBRANE_FIFO_SIZE 64
+#define MEMBRANE_MAX_FDS 4
+
+struct membrane_present {
+	u32 id;
+	u32 num_files;
+	u32 sent;
+	struct file *files[MEMBRANE_MAX_FDS];
+	struct list_head link;
+	struct drm_file *owner;
+};
 
 struct membrane_framebuffer {
 	struct drm_framebuffer base;
@@ -30,7 +39,9 @@ struct membrane_device {
 	struct drm_encoder encoder;
 	struct drm_connector connector;
 
-	DECLARE_KFIFO(fd_fifo, struct file *, MEMBRANE_FIFO_SIZE);
+	spinlock_t present_lock;
+	u32 next_present_id;
+	struct list_head presents;
 	spinlock_t lock;
 
 	struct idr handle_idr;
@@ -42,8 +53,8 @@ struct membrane_device {
 
 int membrane_config(struct drm_device *dev, void *data,
 		    struct drm_file *file_priv);
-void membrane_send_event(struct membrane_device *mdev,
-			 struct membrane_k2u_msg *msg);
+void membrane_send_event(struct membrane_device *mdev, u32 flags,
+			 u32 present_id, u32 num_fds);
 
 static inline struct membrane_framebuffer *
 to_membrane_framebuffer(struct drm_framebuffer *fb)
@@ -71,10 +82,11 @@ int membrane_prime_fd_to_handle(struct drm_device *dev,
 int membrane_prime_handle_to_fd(struct drm_device *dev,
 				struct drm_file *file_priv, uint32_t handle,
 				uint32_t flags, int *prime_fd);
-int membrane_pop_fd(struct drm_device *dev, void *data, struct drm_file *file);
+int membrane_get_present_fd(struct drm_device *dev, void *data,
+			    struct drm_file *file);
 
 static const struct drm_ioctl_desc membrane_ioctls[] = {
-	DRM_IOCTL_DEF_DRV(MEMBRANE_POP_FD, membrane_pop_fd,
+	DRM_IOCTL_DEF_DRV(MEMBRANE_GET_PRESENT_FD, membrane_get_present_fd,
 			  DRM_UNLOCKED | DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(MEMBRANE_CONFIG, membrane_config, DRM_UNLOCKED),
 };

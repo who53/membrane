@@ -104,11 +104,14 @@ static int membrane_load(struct membrane_device *mdev)
 	spin_lock_init(&mdev->lock);
 	spin_lock_init(&mdev->idr_lock);
 	idr_init(&mdev->handle_idr);
-	INIT_KFIFO(mdev->fd_fifo);
 
 	mdev->w = 1920;
 	mdev->h = 1080;
 	mdev->r = 60;
+
+	spin_lock_init(&mdev->present_lock);
+	INIT_LIST_HEAD(&mdev->presents);
+	mdev->next_present_id = 1;
 
 	drm_mode_config_init(dev);
 
@@ -180,6 +183,26 @@ static int membrane_load(struct membrane_device *mdev)
 	return 0;
 }
 
+static void membrane_postclose(struct drm_device *dev, struct drm_file *file)
+{
+	struct membrane_device *mdev =
+		container_of(dev, struct membrane_device, dev);
+	struct membrane_present *p, *n;
+	unsigned long flags;
+	int i;
+
+	spin_lock_irqsave(&mdev->present_lock, flags);
+	list_for_each_entry_safe(p, n, &mdev->presents, link) {
+		if (p->owner == file) {
+			list_del(&p->link);
+			for (i = 0; i < p->num_files; i++)
+				fput(p->files[i]);
+			kfree(p);
+		}
+	}
+	spin_unlock_irqrestore(&mdev->present_lock, flags);
+}
+
 static const struct file_operations membrane_fops = {
 	.owner = THIS_MODULE,
 	.open = drm_open,
@@ -204,6 +227,7 @@ static struct drm_driver membrane_driver = {
 	.prime_handle_to_fd = membrane_prime_handle_to_fd,
 	.ioctls = membrane_ioctls,
 	.num_ioctls = ARRAY_SIZE(membrane_ioctls),
+	.postclose = membrane_postclose,
 };
 
 static int membrane_probe(struct platform_device *pdev)

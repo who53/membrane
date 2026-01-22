@@ -8,16 +8,16 @@ struct membrane_pending_event {
 	struct drm_membrane_event event;
 };
 
-void membrane_send_event(struct membrane_device *mdev,
-			 struct membrane_k2u_msg *msg)
+void membrane_send_event(struct membrane_device *mdev, u32 flags,
+			 u32 present_id, u32 num_fds)
 {
 	struct drm_device *dev = &mdev->dev;
 	struct drm_file *file;
 	struct membrane_pending_event *p;
-	unsigned long flags;
+	unsigned long flags_irq;
 	int ret;
 
-	spin_lock_irqsave(&dev->event_lock, flags);
+	spin_lock_irqsave(&dev->event_lock, flags_irq);
 
 	list_for_each_entry(file, &dev->filelist, lhead) {
 		if (!file->event_space)
@@ -29,7 +29,9 @@ void membrane_send_event(struct membrane_device *mdev,
 
 		p->event.base.type = DRM_MEMBRANE_EVENT;
 		p->event.base.length = sizeof(p->event);
-		p->event.msg = *msg;
+		p->event.flags = flags;
+		p->event.present_id = present_id;
+		p->event.num_fds = num_fds;
 
 		p->base.event = &p->event.base;
 		p->base.file_priv = file;
@@ -44,7 +46,7 @@ void membrane_send_event(struct membrane_device *mdev,
 		drm_send_event_locked(dev, &p->base);
 	}
 
-	spin_unlock_irqrestore(&dev->event_lock, flags);
+	spin_unlock_irqrestore(&dev->event_lock, flags_irq);
 }
 
 int membrane_config(struct drm_device *dev, void *data,
@@ -162,28 +164,20 @@ void membrane_crtc_enable(struct drm_crtc *crtc)
 {
 	struct membrane_device *mdev =
 		container_of(crtc->dev, struct membrane_device, dev);
-	struct membrane_k2u_msg ev = {
-		.flags = MEMBRANE_DPMS_UPDATED,
-		.dpms = 1,
-	};
 
 	membrane_debug("%s", __func__);
 
-	membrane_send_event(mdev, &ev);
+	membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, 1, 0);
 }
 
 void membrane_crtc_disable(struct drm_crtc *crtc)
 {
 	struct membrane_device *mdev =
 		container_of(crtc->dev, struct membrane_device, dev);
-	struct membrane_k2u_msg ev = {
-		.flags = MEMBRANE_DPMS_UPDATED,
-		.dpms = 0,
-	};
 
 	membrane_debug("%s", __func__);
 
-	membrane_send_event(mdev, &ev);
+	membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, 0, 0);
 }
 
 int membrane_cursor_set2(struct drm_crtc *crtc, struct drm_file *file_priv,
@@ -226,34 +220,37 @@ int membrane_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	struct membrane_device *mdev =
 		container_of(crtc->dev, struct membrane_device, dev);
 	struct membrane_framebuffer *mfb = to_membrane_framebuffer(fb);
-	struct membrane_k2u_msg ev = {
-		.flags = MEMBRANE_PRESENT_UPDATED,
-		.present = 1,
-	};
+	struct membrane_present *p;
 	unsigned long irq_flags;
 	int i;
 
 	membrane_debug("%s", __func__);
 
-	spin_lock_irqsave(&mdev->lock, irq_flags);
-	spin_lock(&mdev->idr_lock);
+	p = kzalloc(sizeof(*p), GFP_ATOMIC);
+	if (!p)
+		return -ENOMEM;
 
+	spin_lock_irqsave(&mdev->present_lock, irq_flags);
+	p->id = mdev->next_present_id++;
+	spin_unlock_irqrestore(&mdev->present_lock, irq_flags);
+
+	p->owner = event ? event->base.file_priv : NULL;
+
+	spin_lock(&mdev->idr_lock);
 	for (i = 0; i < 4; i++) {
 		if (mfb->files[i]) {
 			get_file(mfb->files[i]);
-
-			if (!kfifo_put(&mdev->fd_fifo, mfb->files[i])) {
-				membrane_debug(
-					"Failed to queue FD (FIFO full)");
-				fput(mfb->files[i]);
-			}
+			p->files[p->num_files++] = mfb->files[i];
 		}
 	}
-
 	spin_unlock(&mdev->idr_lock);
-	spin_unlock_irqrestore(&mdev->lock, irq_flags);
 
-	membrane_send_event(mdev, &ev);
+	spin_lock_irqsave(&mdev->present_lock, irq_flags);
+	list_add_tail(&p->link, &mdev->presents);
+	spin_unlock_irqrestore(&mdev->present_lock, irq_flags);
+
+	membrane_send_event(mdev, MEMBRANE_PRESENT_UPDATED, p->id,
+			    p->num_files);
 
 	if (event) {
 		unsigned long flags;
@@ -303,31 +300,55 @@ int membrane_prime_handle_to_fd(struct drm_device *dev,
 	return 0;
 }
 
-int membrane_pop_fd(struct drm_device *dev, void *data, struct drm_file *file)
+int membrane_get_present_fd(struct drm_device *dev, void *data,
+			    struct drm_file *file)
 {
 	struct membrane_device *mdev =
 		container_of(dev, struct membrane_device, dev);
-	struct membrane_pop_fd *args = data;
+	struct membrane_get_present_fd *args = data;
+	struct membrane_present *p;
 	unsigned long flags;
 	struct file *f;
 	int fd;
+	int ret = -ENOENT;
 
 	membrane_debug("%s", __func__);
 
-	spin_lock_irqsave(&mdev->lock, flags);
-	if (!kfifo_get(&mdev->fd_fifo, &f)) {
-		spin_unlock_irqrestore(&mdev->lock, flags);
-		return -EAGAIN;
-	}
-	spin_unlock_irqrestore(&mdev->lock, flags);
+	spin_lock_irqsave(&mdev->present_lock, flags);
+	list_for_each_entry(p, &mdev->presents, link) {
+		if (p->id == args->present_id) {
+			if (args->index >= p->num_files) {
+				ret = -EINVAL;
+				goto out;
+			}
 
-	fd = get_unused_fd_flags(O_CLOEXEC);
-	if (fd < 0) {
-		fput(f);
-		return fd;
+			f = p->files[args->index];
+			get_file(f);
+
+			fd = get_unused_fd_flags(O_CLOEXEC);
+			if (fd < 0) {
+				fput(f);
+				ret = fd;
+				goto out;
+			}
+
+			fd_install(fd, f);
+			args->fd = fd;
+
+			p->sent++;
+			if (p->sent == p->num_files) {
+				int i;
+				list_del(&p->link);
+				for (i = 0; i < p->num_files; i++)
+					fput(p->files[i]);
+				kfree(p);
+			}
+			ret = 0;
+			goto out;
+		}
 	}
 
-	fd_install(fd, f);
-	args->fd = fd;
-	return 0;
+out:
+	spin_unlock_irqrestore(&mdev->present_lock, flags);
+	return ret;
 }

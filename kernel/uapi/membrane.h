@@ -15,15 +15,11 @@
 
 #define DRM_MEMBRANE_EVENT 0x80000001
 
-struct membrane_k2u_msg {
-	uint32_t flags;
-	int32_t present;
-	int32_t dpms;
-};
-
 struct drm_membrane_event {
 	struct drm_event base;
-	struct membrane_k2u_msg msg;
+	__u32 flags;
+	__u32 present_id;
+	__u32 num_fds;
 };
 
 struct membrane_u2k_cfg {
@@ -33,15 +29,18 @@ struct membrane_u2k_cfg {
 	int32_t __reserved;
 };
 
-struct membrane_pop_fd {
-	int32_t fd;
+struct membrane_get_present_fd {
+	__u32 present_id;
+	__u32 index;
+	__s32 fd;
 };
 
-#define DRM_MEMBRANE_POP_FD 0x23
+#define DRM_MEMBRANE_GET_PRESENT_FD 0x23
 #define DRM_MEMBRANE_CONFIG 0x24
 
-#define DRM_IOCTL_MEMBRANE_POP_FD \
-	DRM_IOWR(DRM_COMMAND_BASE + DRM_MEMBRANE_POP_FD, struct membrane_pop_fd)
+#define DRM_IOCTL_MEMBRANE_GET_PRESENT_FD                        \
+	DRM_IOWR(DRM_COMMAND_BASE + DRM_MEMBRANE_GET_PRESENT_FD, \
+		 struct membrane_get_present_fd)
 
 #define DRM_IOCTL_MEMBRANE_CONFIG \
 	DRM_IOW(DRM_COMMAND_BASE + DRM_MEMBRANE_CONFIG, struct membrane_u2k_cfg)
