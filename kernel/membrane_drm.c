@@ -164,7 +164,7 @@ void membrane_crtc_enable(struct drm_crtc *crtc)
 		container_of(crtc->dev, struct membrane_device, dev);
 	struct membrane_k2u_msg ev = {
 		.flags = MEMBRANE_DPMS_UPDATED,
-		.dpms = 0,
+		.dpms = 1,
 	};
 
 	membrane_debug("%s", __func__);
@@ -178,7 +178,7 @@ void membrane_crtc_disable(struct drm_crtc *crtc)
 		container_of(crtc->dev, struct membrane_device, dev);
 	struct membrane_k2u_msg ev = {
 		.flags = MEMBRANE_DPMS_UPDATED,
-		.dpms = 1,
+		.dpms = 0,
 	};
 
 	membrane_debug("%s", __func__);
