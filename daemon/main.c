@@ -33,6 +33,25 @@ int hybris_gralloc_release(buffer_handle_t handle, int was_allocated);
 int hybris_gralloc_import_buffer(buffer_handle_t raw_handle,
 				 buffer_handle_t *out_handle);
 
+static uint32_t g_stride = 0;
+
+static uint32_t get_stride(int width, int height, int format, int usage)
+{
+	buffer_handle_t handle = NULL;
+	uint32_t stride = 0;
+
+	int ret = hybris_gralloc_allocate(width, height, format, usage, &handle,
+					  &stride);
+
+	assert(ret == 0);
+	assert(handle);
+	assert(stride > 0);
+
+	hybris_gralloc_release(handle, 1);
+
+	return stride;
+}
+
 static void membrane_send_cfg(int fd, HWC2DisplayConfig *cfg)
 {
 	struct membrane_u2k_cfg u = {
@@ -153,7 +172,7 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 		goto err;
 
 	buffer_handle_t handle = import_buffer_from_fds(
-		cfg->width, cfg->height, cfg->width, HAL_PIXEL_FORMAT_RGBA_8888,
+		cfg->width, cfg->height, g_stride, HAL_PIXEL_FORMAT_RGBA_8888,
 		GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE |
 			GRALLOC_USAGE_HW_COMPOSER,
 		fds, nfds);
@@ -164,7 +183,7 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 	if (!handle)
 		return NULL;
 
-	rwb_set_properties(cfg->width, cfg->height, cfg->width,
+	rwb_set_properties(cfg->width, cfg->height, g_stride,
 			   HAL_PIXEL_FORMAT_RGBA_8888,
 			   GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE |
 				   GRALLOC_USAGE_HW_COMPOSER);
@@ -287,6 +306,14 @@ int main(void)
 					     cfg->height);
 
 	printf("Display %dx%d\n", cfg->width, cfg->height);
+
+	g_stride =
+		get_stride(cfg->width, cfg->height, HAL_PIXEL_FORMAT_RGBA_8888,
+			   GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE |
+				   GRALLOC_USAGE_HW_COMPOSER);
+
+	printf("Using cached gralloc stride = %u (width = %u)\n", g_stride,
+	       cfg->width);
 
 	membrane_send_cfg(mfd, cfg);
 	membrane_event_loop(mfd, display, cfg);
