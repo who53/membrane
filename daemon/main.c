@@ -217,8 +217,11 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t *display,
 							me->present_id,
 							me->num_fds);
 
-					if (anw)
+					if (anw) {
 						do_present_block(display, anw);
+						anw->common.decRef(
+							&anw->common);
+					}
 				}
 			}
 
