@@ -25,8 +25,6 @@
 #include "rwb.h"
 #include "membrane.h"
 
-#define MEMBRANE_DEV "/dev/dri/card0"
-
 int hybris_gralloc_allocate(int width, int height, int format, int usage,
 			    buffer_handle_t *handle, uint32_t *stride);
 int hybris_gralloc_release(buffer_handle_t handle, int was_allocated);
@@ -262,7 +260,8 @@ static void on_refresh(HWC2EventListener *l, int32_t id, hwc2_display_t d)
 
 int main(void)
 {
-	int mfd = open(MEMBRANE_DEV, O_RDWR | O_CLOEXEC);
+	int mfd = open("/dev/dri/by-path/platform-membrane-card",
+		       O_RDWR | O_CLOEXEC);
 	assert(mfd >= 0);
 
 	drmDropMaster(mfd);
