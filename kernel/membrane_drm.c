@@ -177,6 +177,11 @@ void membrane_crtc_disable(struct drm_crtc *crtc)
 
 	membrane_debug("%s", __func__);
 
+	if (!crtc->dev->master) {
+		membrane_debug("compositor has died");
+		return;
+	}
+
 	membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, 0, 0);
 }
 
