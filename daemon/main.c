@@ -34,11 +34,12 @@ int hybris_gralloc_import_buffer(buffer_handle_t raw_handle,
 				 buffer_handle_t *out_handle);
 
 static uint32_t g_stride = 0;
-static bool g_display_enabled = true;
+static bool g_display_enabled = false;
 static DroidLeds *g_droid_leds = NULL;
 static bool g_has_backlight = false;
 static bool g_backlight_slept = false;
 static ANativeWindowBuffer *g_last_buffer = NULL;
+static hwc2_compat_layer_t *g_layer = NULL;
 
 static uint32_t get_stride(int width, int height, int format, int usage)
 {
@@ -121,27 +122,31 @@ static void do_present_block(hwc2_compat_display_t *display,
 {
 	uint32_t numTypes = 0;
 	uint32_t numReqs = 0;
-	ANativeWindowBuffer *target = anw;
+	static bool needs_validate = true;
 
-	hwc2_error_t err =
-		hwc2_compat_display_validate(display, &numTypes, &numReqs);
+	hwc2_compat_layer_set_buffer(g_layer, 0, anw, -1);
 
-	if (err != HWC2_ERROR_NONE && err != HWC2_ERROR_HAS_CHANGES) {
-		fprintf(stderr, "hwc2_compat_display_validate failed: err=%d\n",
-			err);
+	if (needs_validate) {
+		hwc2_error_t err = hwc2_compat_display_validate(
+			display, &numTypes, &numReqs);
+
+		if (err != HWC2_ERROR_NONE && err != HWC2_ERROR_HAS_CHANGES) {
+			fprintf(stderr,
+				"hwc2_compat_display_validate failed: err=%d\n",
+				err);
+		}
+
+		if (numTypes || numReqs) {
+			err = hwc2_compat_display_accept_changes(display);
+			assert(err == HWC2_ERROR_NONE);
+			needs_validate = true;
+		} else {
+			needs_validate = false;
+		}
 	}
-
-	if (numTypes || numReqs) {
-		err = hwc2_compat_display_accept_changes(display);
-		assert(err == HWC2_ERROR_NONE);
-	}
-
-	err = hwc2_compat_display_set_client_target(display, 0, target, -1,
-						    HAL_DATASPACE_UNKNOWN);
-	assert(err == HWC2_ERROR_NONE);
 
 	int32_t presentFence = -1;
-	err = hwc2_compat_display_present(display, &presentFence);
+	hwc2_error_t err = hwc2_compat_display_present(display, &presentFence);
 	assert(err == HWC2_ERROR_NONE);
 	if (g_last_buffer != NULL) {
 		g_last_buffer->common.decRef(&g_last_buffer->common);
@@ -157,50 +162,43 @@ static void do_present_block(hwc2_compat_display_t *display,
 
 static struct ANativeWindowBuffer *
 membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
-			uint32_t num_fds)
+			uint32_t expected_num_fds)
 {
-	int fds[8];
-	int nfds = 0;
-	unsigned int i;
+	struct membrane_get_present_fd arg = {
+		.present_id = present_id,
+	};
+	int i;
 
-	if (num_fds > 8) {
-		fprintf(stderr, "membrane: too many fds %u\n", num_fds);
+	if (ioctl(mfd, DRM_IOCTL_MEMBRANE_GET_PRESENT_FD, &arg) < 0) {
+		if (errno == ENOENT) {
+			return NULL;
+		}
+		perror("MEMBRANE_GET_PRESENT_FD");
 		return NULL;
 	}
 
-	for (i = 0; i < num_fds; i++) {
-		struct membrane_get_present_fd arg = {
-			.present_id = present_id,
-			.index = i,
-		};
-
-		if (ioctl(mfd, DRM_IOCTL_MEMBRANE_GET_PRESENT_FD, &arg) < 0) {
-			perror("MEMBRANE_GET_PRESENT_FD");
-			goto err;
-		}
-
-		fds[nfds++] = arg.fd;
+	if (arg.num_fds < 2) {
+		fprintf(stderr, "membrane: insufficient fds (%u)\n",
+			arg.num_fds);
+		goto err;
 	}
 
-	if (nfds < 2)
+	if (arg.num_fds > 4) {
+		fprintf(stderr, "membrane: too many fds (%u)\n", arg.num_fds);
 		goto err;
+	}
 
 	buffer_handle_t handle = import_buffer_from_fds(
 		cfg->width, cfg->height, g_stride, HAL_PIXEL_FORMAT_RGBA_8888,
 		GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE |
 			GRALLOC_USAGE_HW_COMPOSER,
-		fds, nfds);
+		arg.fds, arg.num_fds);
 
-	for (i = 0; i < (unsigned int)nfds; i++)
-		close(fds[i]);
+	for (i = 0; i < (int)arg.num_fds; i++)
+		close(arg.fds[i]);
 
 	if (!handle)
 		return NULL;
-
-	rwb_set_properties(cfg->width, cfg->height, g_stride,
-			   HAL_PIXEL_FORMAT_RGBA_8888,
-			   GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE |
-				   GRALLOC_USAGE_HW_COMPOSER);
 
 	rwb_t *rwb = rwb_new(handle);
 	if (!rwb)
@@ -209,8 +207,8 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 	return rwb_get_native(rwb);
 
 err:
-	for (i = 0; i < (unsigned int)nfds; i++)
-		close(fds[i]);
+	for (i = 0; i < (int)arg.num_fds; i++)
+		close(arg.fds[i]);
 	return NULL;
 }
 
@@ -354,16 +352,17 @@ int main(void)
 	HWC2DisplayConfig *cfg = hwc2_compat_display_get_active_config(display);
 	assert(cfg);
 
-	hwc2_compat_layer_t *layer = hwc2_compat_display_create_layer(display);
-	assert(layer);
+	g_layer = hwc2_compat_display_create_layer(display);
+	assert(g_layer);
 
-	hwc2_compat_layer_set_composition_type(layer, HWC2_COMPOSITION_CLIENT);
-	hwc2_compat_layer_set_blend_mode(layer, HWC2_BLEND_MODE_NONE);
-	hwc2_compat_layer_set_source_crop(layer, 0.0f, 0.0f, cfg->width,
+	hwc2_compat_layer_set_blend_mode(g_layer, HWC2_BLEND_MODE_NONE);
+	hwc2_compat_layer_set_composition_type(g_layer,
+					       HWC2_COMPOSITION_DEVICE);
+	hwc2_compat_layer_set_source_crop(g_layer, 0.0f, 0.0f, cfg->width,
 					  cfg->height);
-	hwc2_compat_layer_set_display_frame(layer, 0, 0, cfg->width,
+	hwc2_compat_layer_set_display_frame(g_layer, 0, 0, cfg->width,
 					    cfg->height);
-	hwc2_compat_layer_set_visible_region(layer, 0, 0, cfg->width,
+	hwc2_compat_layer_set_visible_region(g_layer, 0, 0, cfg->width,
 					     cfg->height);
 
 	printf("Display %dx%d\n", cfg->width, cfg->height);
@@ -377,6 +376,12 @@ int main(void)
 	       cfg->width);
 
 	membrane_send_cfg(mfd, cfg);
+
+	rwb_set_properties(cfg->width, cfg->height, g_stride,
+			   HAL_PIXEL_FORMAT_RGBA_8888,
+			   GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE |
+				   GRALLOC_USAGE_HW_COMPOSER);
+
 	membrane_event_loop(mfd, display, cfg);
 
 	return 0;
