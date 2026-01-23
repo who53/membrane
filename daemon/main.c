@@ -33,6 +33,7 @@ int hybris_gralloc_import_buffer(buffer_handle_t raw_handle,
 				 buffer_handle_t *out_handle);
 
 static uint32_t g_stride = 0;
+static bool g_display_enabled = true;
 static ANativeWindowBuffer *g_last_buffer = NULL;
 
 static uint32_t get_stride(int width, int height, int format, int usage)
@@ -205,6 +206,23 @@ err:
 	return NULL;
 }
 
+static void handle_dpms_event(hwc2_compat_display_t *display)
+{
+	g_display_enabled = !g_display_enabled;
+
+	hwc2_power_mode_t mode = g_display_enabled ? HWC2_POWER_MODE_ON :
+						     HWC2_POWER_MODE_OFF;
+
+	hwc2_error_t err = hwc2_compat_display_set_power_mode(display, mode);
+
+	if (err != HWC2_ERROR_NONE) {
+		fprintf(stderr, "membrane: failed to set DPMS mode %d\n", mode);
+		return;
+	}
+
+	printf("membrane: DPMS %s\n", g_display_enabled ? "ON" : "OFF");
+}
+
 static void membrane_event_loop(int mfd, hwc2_compat_display_t *display,
 				HWC2DisplayConfig *cfg)
 {
@@ -228,8 +246,7 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t *display,
 					(struct drm_membrane_event *)e;
 
 				if (me->flags & MEMBRANE_DPMS_UPDATED) {
-					printf("membrane: DPMS %u\n",
-					       me->present_id);
+					handle_dpms_event(display);
 				}
 
 				if (me->flags & MEMBRANE_PRESENT_UPDATED) {
