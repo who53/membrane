@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +33,7 @@ int hybris_gralloc_import_buffer(buffer_handle_t raw_handle,
 				 buffer_handle_t *out_handle);
 
 static uint32_t g_stride = 0;
+static ANativeWindowBuffer *g_last_buffer = NULL;
 
 static uint32_t get_stride(int width, int height, int format, int usage)
 {
@@ -114,6 +116,7 @@ static void do_present_block(hwc2_compat_display_t *display,
 {
 	uint32_t numTypes = 0;
 	uint32_t numReqs = 0;
+	ANativeWindowBuffer *target = anw;
 
 	hwc2_error_t err =
 		hwc2_compat_display_validate(display, &numTypes, &numReqs);
@@ -124,16 +127,23 @@ static void do_present_block(hwc2_compat_display_t *display,
 		assert(err == HWC2_ERROR_NONE);
 	}
 
-	err = hwc2_compat_display_set_client_target(display, 0, anw, -1,
+	err = hwc2_compat_display_set_client_target(display, 0, target, -1,
 						    HAL_DATASPACE_UNKNOWN);
 	assert(err == HWC2_ERROR_NONE);
 
 	int32_t presentFence = -1;
 	err = hwc2_compat_display_present(display, &presentFence);
 	assert(err == HWC2_ERROR_NONE);
+	if (g_last_buffer != NULL) {
+		g_last_buffer->common.decRef(&g_last_buffer->common);
+	}
 
-	if (presentFence >= 0)
+	if (presentFence != -1) {
 		close(presentFence);
+	}
+
+	g_last_buffer = anw;
+	g_last_buffer->common.incRef(&g_last_buffer->common);
 }
 
 static struct ANativeWindowBuffer *
