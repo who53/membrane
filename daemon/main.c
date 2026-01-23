@@ -147,6 +147,13 @@ static void do_present_block(hwc2_compat_display_t *display,
 
 	int32_t presentFence = -1;
 	hwc2_error_t err = hwc2_compat_display_present(display, &presentFence);
+	if (err != HWC2_ERROR_NONE) {
+		fprintf(stderr,
+			"hwc2_compat_display_present failed: err=%d (is compositor dead?)\n",
+			err);
+		return;
+	}
+
 	assert(err == HWC2_ERROR_NONE);
 	if (g_last_buffer != NULL) {
 		g_last_buffer->common.decRef(&g_last_buffer->common);
