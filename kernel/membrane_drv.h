@@ -13,17 +13,16 @@
 #include <linux/wait.h>
 #include <linux/spinlock.h>
 #include <linux/list.h>
+#include <linux/atomic.h>
 #include "uapi/membrane.h"
 
 #define MEMBRANE_MAX_FDS 4
+#define MAX_PRESENTS 64
 
 struct membrane_present {
 	u32 id;
 	u32 num_files;
-	u32 sent;
 	struct file *files[MEMBRANE_MAX_FDS];
-	struct list_head link;
-	struct drm_file *owner;
 };
 
 struct membrane_framebuffer {
@@ -39,13 +38,11 @@ struct membrane_device {
 	struct drm_encoder encoder;
 	struct drm_connector connector;
 
-	spinlock_t present_lock;
-	u32 next_present_id;
-	struct list_head presents;
-	spinlock_t lock;
+	struct drm_file *event_consumer;
+	atomic_t next_present_id;
+	struct membrane_present presents[MAX_PRESENTS];
 
-	struct idr handle_idr;
-	spinlock_t idr_lock;
+	struct file *imported_files[4];
 
 	int w, h, r;
 	int buf_id;

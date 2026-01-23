@@ -40,6 +40,7 @@ static int membrane_connector_get_modes(struct drm_connector *connector)
 	struct membrane_device *mdev =
 		container_of(dev, struct membrane_device, dev);
 	struct drm_display_mode *mode;
+	int w, h, r;
 
 	membrane_debug("%s", __func__);
 	mode = drm_mode_create(connector->dev);
@@ -48,15 +49,19 @@ static int membrane_connector_get_modes(struct drm_connector *connector)
 		return 0;
 	}
 
-	mode->hdisplay = mdev->w;
+	w = READ_ONCE(mdev->w);
+	h = READ_ONCE(mdev->h);
+	r = READ_ONCE(mdev->r);
+
+	mode->hdisplay = w;
 	mode->hsync_start = mode->hdisplay + 60;
 	mode->hsync_end = mode->hsync_start + 14;
 	mode->htotal = mode->hsync_end + 170;
-	mode->vdisplay = mdev->h;
+	mode->vdisplay = h;
 	mode->vsync_start = mode->vdisplay + 32,
 	mode->vsync_end = mode->vsync_start + 8,
 	mode->vtotal = mode->vsync_end + 184,
-	mode->clock = mode->htotal * mode->vtotal * mdev->r / 1000;
+	mode->clock = mode->htotal * mode->vtotal * r / 1000;
 
 	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
 	drm_mode_set_name(mode);
@@ -101,17 +106,11 @@ static int membrane_load(struct membrane_device *mdev)
 	struct drm_device *dev = &mdev->dev;
 	int ret;
 
-	spin_lock_init(&mdev->lock);
-	spin_lock_init(&mdev->idr_lock);
-	idr_init(&mdev->handle_idr);
-
 	mdev->w = 1920;
 	mdev->h = 1080;
 	mdev->r = 60;
 
-	spin_lock_init(&mdev->present_lock);
-	INIT_LIST_HEAD(&mdev->presents);
-	mdev->next_present_id = 1;
+	atomic_set(&mdev->next_present_id, 1);
 
 	drm_mode_config_init(dev);
 
@@ -187,20 +186,29 @@ static void membrane_postclose(struct drm_device *dev, struct drm_file *file)
 {
 	struct membrane_device *mdev =
 		container_of(dev, struct membrane_device, dev);
-	struct membrane_present *p, *n;
-	unsigned long flags;
-	int i;
+	int i, j;
 
-	spin_lock_irqsave(&mdev->present_lock, flags);
-	list_for_each_entry_safe(p, n, &mdev->presents, link) {
-		if (p->owner == file) {
-			list_del(&p->link);
-			for (i = 0; i < p->num_files; i++)
-				fput(p->files[i]);
-			kfree(p);
+	if (READ_ONCE(mdev->event_consumer) == file) {
+		WRITE_ONCE(mdev->event_consumer, NULL);
+
+		for (i = 0; i < MAX_PRESENTS; i++) {
+			struct membrane_present *p = &mdev->presents[i];
+			for (j = 0; j < MEMBRANE_MAX_FDS; j++) {
+				if (p->files[j]) {
+					fput(p->files[j]);
+					p->files[j] = NULL;
+				}
+			}
+			p->id = 0;
+		}
+
+		for (i = 0; i < 4; i++) {
+			if (mdev->imported_files[i]) {
+				fput(mdev->imported_files[i]);
+				mdev->imported_files[i] = NULL;
+			}
 		}
 	}
-	spin_unlock_irqrestore(&mdev->present_lock, flags);
 }
 
 static const struct file_operations membrane_fops = {
