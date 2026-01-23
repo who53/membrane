@@ -136,8 +136,6 @@ static void do_present_block(hwc2_compat_display_t *display,
 
 	if (presentFence >= 0)
 		close(presentFence);
-
-	printf("hwc: frame presented\n");
 }
 
 static struct ANativeWindowBuffer *
@@ -164,7 +162,6 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 			goto err;
 		}
 
-		printf("membrane: got fd %d\n", arg.fd);
 		fds[nfds++] = arg.fd;
 	}
 
@@ -228,8 +225,6 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t *display,
 				}
 
 				if (me->flags & MEMBRANE_PRESENT_UPDATED) {
-					printf("membrane: PRESENT\n");
-
 					struct ANativeWindowBuffer *anw =
 						membrane_handle_present(
 							mfd, cfg,

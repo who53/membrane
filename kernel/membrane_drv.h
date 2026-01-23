@@ -92,7 +92,7 @@ static const struct drm_ioctl_desc membrane_ioctls[] = {
 };
 
 #define membrane_debug(fmt, ...) \
-	pr_err("membrane: %s: " fmt "\n", __func__, ##__VA_ARGS__)
+	pr_debug("membrane: %s: " fmt "\n", __func__, ##__VA_ARGS__)
 
 #if KERNEL_VERSION(4, 15, 0) > LINUX_VERSION_CODE
 static inline void drm_dev_put(struct drm_device *dev)
