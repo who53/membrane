@@ -19,6 +19,7 @@
 
 #include <xf86drm.h>
 #include <hybris/hwc2/hwc2_compatibility_layer.h>
+#include <libdroid/leds.h>
 
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
@@ -34,6 +35,9 @@ int hybris_gralloc_import_buffer(buffer_handle_t raw_handle,
 
 static uint32_t g_stride = 0;
 static bool g_display_enabled = true;
+static DroidLeds *g_droid_leds = NULL;
+static bool g_has_backlight = false;
+static bool g_backlight_slept = false;
 static ANativeWindowBuffer *g_last_buffer = NULL;
 
 static uint32_t get_stride(int width, int height, int format, int usage)
@@ -121,7 +125,11 @@ static void do_present_block(hwc2_compat_display_t *display,
 
 	hwc2_error_t err =
 		hwc2_compat_display_validate(display, &numTypes, &numReqs);
-	assert(err == HWC2_ERROR_NONE || err == HWC2_ERROR_HAS_CHANGES);
+
+	if (err != HWC2_ERROR_NONE && err != HWC2_ERROR_HAS_CHANGES) {
+		fprintf(stderr, "hwc2_compat_display_validate failed: err=%d\n",
+			err);
+	}
 
 	if (numTypes || numReqs) {
 		err = hwc2_compat_display_accept_changes(display);
@@ -210,14 +218,28 @@ static void handle_dpms_event(hwc2_compat_display_t *display)
 {
 	g_display_enabled = !g_display_enabled;
 
+	const bool change_backlight = g_has_backlight && g_droid_leds;
+
+	if (!g_display_enabled && change_backlight && !g_backlight_slept) {
+		droid_leds_set_backlight(g_droid_leds, 0, FALSE);
+		g_backlight_slept = true;
+	}
+
 	hwc2_power_mode_t mode = g_display_enabled ? HWC2_POWER_MODE_ON :
 						     HWC2_POWER_MODE_OFF;
 
-	hwc2_error_t err = hwc2_compat_display_set_power_mode(display, mode);
-
-	if (err != HWC2_ERROR_NONE) {
-		fprintf(stderr, "membrane: failed to set DPMS mode %d\n", mode);
+	if (hwc2_compat_display_set_power_mode(display, mode) !=
+	    HWC2_ERROR_NONE)
 		return;
+
+	if (g_display_enabled && change_backlight && g_backlight_slept) {
+		guint level = droid_leds_get_backlight(g_droid_leds);
+
+		if (level == 0)
+			level = 5;
+
+		droid_leds_set_backlight(g_droid_leds, level, FALSE);
+		g_backlight_slept = false;
 	}
 
 	printf("membrane: DPMS %s\n", g_display_enabled ? "ON" : "OFF");
@@ -307,6 +329,24 @@ int main(void)
 	hwc2_compat_display_t *display =
 		hwc2_compat_device_get_display_by_id(device, 0);
 	assert(display);
+
+	if (getenv("MEMBRANE_BACKLIGHT")) {
+		GError *err = NULL;
+
+		g_droid_leds = droid_leds_new(&err);
+		if (err) {
+			fprintf(stderr, "libdroid: init failed: %s\n",
+				err->message);
+			g_error_free(err);
+			g_droid_leds = NULL;
+		} else {
+			g_has_backlight = true;
+
+			(void)droid_leds_get_backlight(g_droid_leds);
+
+			printf("libdroid: backlight control enabled\n");
+		}
+	}
 
 	hwc2_compat_display_set_power_mode(display, HWC2_POWER_MODE_ON);
 	hwc2_compat_display_set_vsync_enabled(display, HWC2_VSYNC_ENABLE);
