@@ -70,7 +70,7 @@ static int membrane_device_get_format_modifier_plane_count(
 	(void)device;
 	(void)format;
 	(void)modifier;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 	return 0;
 }
 
@@ -145,7 +145,7 @@ static struct gbm_bo *membrane_bo_import(struct gbm_device *gbm, uint32_t type,
 	(void)type;
 	(void)buffer;
 	(void)usage;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 	return NULL;
 }
 
@@ -161,7 +161,7 @@ static void *membrane_bo_map(struct gbm_bo *bo, uint32_t x, uint32_t y,
 	(void)flags;
 	(void)stride;
 	(void)map_data;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 	return NULL;
 }
 
@@ -169,7 +169,7 @@ static void membrane_bo_unmap(struct gbm_bo *bo, void *map_data)
 {
 	(void)bo;
 	(void)map_data;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 }
 
 static int membrane_bo_write(struct gbm_bo *bo, const void *buf, size_t data)
@@ -177,7 +177,7 @@ static int membrane_bo_write(struct gbm_bo *bo, const void *buf, size_t data)
 	(void)bo;
 	(void)buf;
 	(void)data;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 	return -1;
 }
 
@@ -199,7 +199,7 @@ static int membrane_bo_get_plane_fd(struct gbm_bo *bo, int plane)
 static int membrane_bo_get_fd(struct gbm_bo *bo)
 {
 	(void)bo;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 	return -1;
 }
 
@@ -207,7 +207,7 @@ static union gbm_bo_handle membrane_bo_get_handle(struct gbm_bo *bo, int plane)
 {
 	(void)bo;
 	(void)plane;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 	union gbm_bo_handle handle = { 0 };
 	return handle;
 }
@@ -262,7 +262,7 @@ membrane_surface_create(struct gbm_device *gbm, uint32_t width, uint32_t height,
 	(void)flags;
 	(void)modifiers;
 	(void)count;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 	return NULL;
 }
 
@@ -270,7 +270,7 @@ static struct gbm_bo *
 membrane_surface_lock_front_buffer(struct gbm_surface *surface)
 {
 	(void)surface;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 	return NULL;
 }
 
@@ -279,20 +279,20 @@ static void membrane_surface_release_buffer(struct gbm_surface *surface,
 {
 	(void)surface;
 	(void)bo;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 }
 
 static int membrane_surface_has_free_buffers(struct gbm_surface *surface)
 {
 	(void)surface;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 	return 0;
 }
 
 static void membrane_surface_destroy(struct gbm_surface *surface)
 {
 	(void)surface;
-	membrane_debug("membrane: %s shouldnt get called\n", __func__);
+	fprintf(stderr, "membrane: %s shouldnt get called\n", __func__);
 }
 
 struct gbm_device *membrane_device_create(int fd, uint32_t gbm_backend_version)
