@@ -112,7 +112,15 @@ static int membrane_load(struct membrane_device *mdev)
 
 	atomic_set(&mdev->next_present_id, 1);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+	ret = drm_mode_config_init(dev);
+	if (ret) {
+		membrane_debug("drm_mode_config_init failed: %d", ret);
+		return ret;
+	}
+#else
 	drm_mode_config_init(dev);
+#endif
 
 	dev->mode_config.min_width = 0;
 	dev->mode_config.min_height = 0;
@@ -123,6 +131,9 @@ static int membrane_load(struct membrane_device *mdev)
 	ret = drm_universal_plane_init(dev, &mdev->plane, 0,
 				       &membrane_plane_funcs, membrane_formats,
 				       ARRAY_SIZE(membrane_formats),
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+					   NULL,
+#endif
 				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (ret) {
 		membrane_debug("drm_universal_plane_init failed: %d", ret);
@@ -154,13 +165,16 @@ static int membrane_load(struct membrane_device *mdev)
 		return ret;
 	}
 
-	mdev->connector.polled = DRM_CONNECTOR_POLL_CONNECT |
-				 DRM_CONNECTOR_POLL_DISCONNECT;
 	drm_connector_helper_add(&mdev->connector,
 				 &membrane_connector_helper_funcs);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
+	ret = drm_connector_attach_encoder(&mdev->connector,
+						&mdev->encoder);
+#else
 	ret = drm_mode_connector_attach_encoder(&mdev->connector,
 						&mdev->encoder);
+#endif
 	if (ret) {
 		membrane_debug("drm_mode_connector_attach_encoder failed: %d",
 			       ret);
