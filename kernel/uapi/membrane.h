@@ -31,8 +31,8 @@ struct membrane_u2k_cfg {
 
 struct membrane_get_present_fd {
 	__u32 present_id;
-	__u32 index;
-	__s32 fd;
+	__u32 num_fds;
+	__s32 fds[4];
 };
 
 #define DRM_MEMBRANE_GET_PRESENT_FD 0x23

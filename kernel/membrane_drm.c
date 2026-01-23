@@ -14,20 +14,14 @@ void membrane_send_event(struct membrane_device *mdev, u32 flags,
 	struct drm_device *dev = &mdev->dev;
 	struct drm_file *file = READ_ONCE(mdev->event_consumer);
 	struct membrane_pending_event *p;
-	unsigned long flags_irq;
 	int ret;
 
 	if (!file)
 		return;
 
-	spin_lock_irqsave(&dev->event_lock, flags_irq);
-
-	if (!file->event_space)
-		goto out;
-
-	p = kzalloc(sizeof(*p), GFP_ATOMIC);
+	p = kzalloc(sizeof(*p), GFP_KERNEL);
 	if (!p)
-		goto out;
+		return;
 
 	p->event.base.type = DRM_MEMBRANE_EVENT;
 	p->event.base.length = sizeof(p->event);
@@ -38,17 +32,13 @@ void membrane_send_event(struct membrane_device *mdev, u32 flags,
 	p->base.event = &p->event.base;
 	p->base.file_priv = file;
 
-	ret = drm_event_reserve_init_locked(dev, file, &p->base,
-					    &p->event.base);
+	ret = drm_event_reserve_init(dev, file, &p->base, &p->event.base);
 	if (ret) {
 		kfree(p);
-		goto out;
+		return;
 	}
 
-	drm_send_event_locked(dev, &p->base);
-
-out:
-	spin_unlock_irqrestore(&dev->event_lock, flags_irq);
+	drm_send_event(dev, &p->base);
 }
 
 int membrane_config(struct drm_device *dev, void *data,
@@ -227,22 +217,22 @@ int membrane_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	id = (u32)atomic_inc_return(&mdev->next_present_id);
 	p = &mdev->presents[id % MAX_PRESENTS];
 
-	for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
-		if (p->files[i]) {
-			fput(p->files[i]);
-			p->files[i] = NULL;
+	for (i = 0; i < 4; i++) {
+		if (p->files[i] != mfb->files[i]) {
+			if (p->files[i])
+				fput(p->files[i]);
+			p->files[i] = mfb->files[i];
+			if (p->files[i])
+				get_file(p->files[i]);
 		}
 	}
 
 	p->num_files = 0;
 	for (i = 0; i < 4; i++) {
-		if (mfb->files[i]) {
-			get_file(mfb->files[i]);
-			p->files[p->num_files++] = mfb->files[i];
-		}
+		if (p->files[i])
+			p->num_files++;
 	}
 
-	smp_wmb();
 	p->id = id;
 
 	membrane_send_event(mdev, MEMBRANE_PRESENT_UPDATED, p->id,
@@ -298,8 +288,7 @@ int membrane_get_present_fd(struct drm_device *dev, void *data,
 		container_of(dev, struct membrane_device, dev);
 	struct membrane_get_present_fd *args = data;
 	struct membrane_present *p;
-	struct file *f;
-	int fd;
+	int i, count = 0;
 
 	membrane_debug("%s", __func__);
 
@@ -310,22 +299,26 @@ int membrane_get_present_fd(struct drm_device *dev, void *data,
 
 	smp_rmb();
 
-	if (args->index >= p->num_files)
-		return -EINVAL;
+	for (i = 0; i < p->num_files && i < 4; i++) {
+		struct file *f = p->files[i];
+		int fd;
 
-	f = p->files[args->index];
-	if (!f)
-		return -ENOENT;
+		if (!f)
+			continue;
 
-	get_file(f);
-	fd = get_unused_fd_flags(O_CLOEXEC);
-	if (fd < 0) {
-		fput(f);
-		return fd;
+		get_file(f);
+		fd = get_unused_fd_flags(O_CLOEXEC);
+		if (fd < 0) {
+			fput(f);
+			break;
+		}
+
+		fd_install(fd, f);
+		args->fds[i] = fd;
+		count++;
 	}
 
-	fd_install(fd, f);
-	args->fd = fd;
+	args->num_fds = count;
 
 	return 0;
 }
