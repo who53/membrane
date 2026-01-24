@@ -47,8 +47,6 @@ enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer *timer)
 		container_of(timer, struct membrane_device, vblank_timer);
 	u64 val;
 	u32 present_id, num_fds;
-	int refresh_rate;
-	u64 period_ns;
 
 	val = atomic64_xchg(&mdev->pending_present, 0);
 	if (val) {
@@ -58,12 +56,15 @@ enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer *timer)
 				    num_fds);
 	}
 
-	refresh_rate = READ_ONCE(mdev->r);
-	if (refresh_rate <= 0)
-		refresh_rate = 60;
-	period_ns = 1000000000ULL / refresh_rate;
-	hrtimer_forward_now(timer, ns_to_ktime(period_ns));
-	return HRTIMER_RESTART;
+	if (atomic64_read(&mdev->pending_present)) {
+		int r = READ_ONCE(mdev->r);
+		if (r <= 0)
+			r = 60;
+		hrtimer_forward_now(timer, ns_to_ktime(1000000000ULL / r));
+		return HRTIMER_RESTART;
+	}
+
+	return HRTIMER_NORESTART;
 }
 
 static void membrane_queue_present(struct membrane_device *mdev, u32 present_id,
@@ -203,6 +204,9 @@ void membrane_crtc_disable(struct drm_crtc *crtc)
 		membrane_debug("compositor has died");
 		return;
 	}
+
+	atomic64_set(&mdev->pending_present, 0);
+	hrtimer_cancel(&mdev->vblank_timer);
 
 	membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, 0, 0);
 }
