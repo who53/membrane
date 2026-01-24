@@ -215,7 +215,9 @@ static void membrane_postclose(struct drm_device *dev, struct drm_file *file)
 					fput(p->files[j]);
 					p->files[j] = NULL;
 				}
+				p->fds[j] = -1;
 			}
+			p->fds_valid = false;
 			p->id = 0;
 		}
 

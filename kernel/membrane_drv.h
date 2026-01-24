@@ -24,6 +24,8 @@ struct membrane_present {
 	u32 id;
 	u32 num_files;
 	struct file *files[MEMBRANE_MAX_FDS];
+	int fds[MEMBRANE_MAX_FDS];
+	bool fds_valid;
 };
 
 struct membrane_framebuffer {

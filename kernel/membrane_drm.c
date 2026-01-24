@@ -337,26 +337,36 @@ int membrane_get_present_fd(struct drm_device *dev, void *data,
 
 	smp_rmb();
 
-	for (i = 0; i < p->num_files && i < 4; i++) {
-		struct file *f = p->files[i];
-		int fd;
+	if (!p->fds_valid) {
+		for (i = 0; i < p->num_files && i < MEMBRANE_MAX_FDS; i++) {
+			struct file *f = p->files[i];
+			int fd;
 
-		if (!f)
-			continue;
+			if (!f) {
+				p->fds[i] = -1;
+				continue;
+			}
 
-		get_file(f);
-		fd = get_unused_fd_flags(O_CLOEXEC);
-		if (fd < 0) {
-			fput(f);
-			break;
+			fd = get_unused_fd_flags(O_CLOEXEC);
+			if (fd < 0)
+				return -ENOMEM;
+
+			get_file(f);
+			fd_install(fd, f);
+			p->fds[i] = fd;
+			count++;
 		}
-
-		fd_install(fd, f);
-		args->fds[i] = fd;
-		count++;
+		p->fds_valid = true;
+	} else {
+		for (i = 0; i < p->num_files && i < MEMBRANE_MAX_FDS; i++) {
+			if (p->fds[i] >= 0)
+				count++;
+		}
 	}
 
-	args->num_fds = count;
+	for (i = 0; i < MEMBRANE_MAX_FDS; i++)
+		args->fds[i] = p->fds[i];
 
+	args->num_fds = count;
 	return 0;
 }
