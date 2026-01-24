@@ -174,12 +174,8 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 	struct membrane_get_present_fd arg = {
 		.present_id = present_id,
 	};
-	int i;
 
 	if (ioctl(mfd, DRM_IOCTL_MEMBRANE_GET_PRESENT_FD, &arg) < 0) {
-		if (errno == ENOENT) {
-			return NULL;
-		}
 		perror("MEMBRANE_GET_PRESENT_FD");
 		return NULL;
 	}
@@ -187,12 +183,12 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 	if (arg.num_fds < 2) {
 		fprintf(stderr, "membrane: insufficient fds (%u)\n",
 			arg.num_fds);
-		goto err;
+		return NULL;
 	}
 
 	if (arg.num_fds > 4) {
 		fprintf(stderr, "membrane: too many fds (%u)\n", arg.num_fds);
-		goto err;
+		return NULL;
 	}
 
 	buffer_handle_t handle = import_buffer_from_fds(
@@ -200,9 +196,6 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 		GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE |
 			GRALLOC_USAGE_HW_COMPOSER,
 		arg.fds, arg.num_fds);
-
-	for (i = 0; i < (int)arg.num_fds; i++)
-		close(arg.fds[i]);
 
 	if (!handle)
 		return NULL;
@@ -212,11 +205,6 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 		return NULL;
 
 	return rwb_get_native(rwb);
-
-err:
-	for (i = 0; i < (int)arg.num_fds; i++)
-		close(arg.fds[i]);
-	return NULL;
 }
 
 static void handle_dpms_event(hwc2_compat_display_t *display)
