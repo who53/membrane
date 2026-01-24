@@ -40,6 +40,7 @@ static bool g_has_backlight = false;
 static bool g_backlight_slept = false;
 static ANativeWindowBuffer *g_last_buffer = NULL;
 static hwc2_compat_layer_t *g_layer = NULL;
+static bool g_needs_revalidate = true;
 
 static uint32_t get_stride(int width, int height, int format, int usage)
 {
@@ -126,7 +127,8 @@ static void do_present_block(hwc2_compat_display_t *display,
 
 	hwc2_compat_layer_set_buffer(g_layer, 0, anw, -1);
 
-	if (needs_validate) {
+	if (needs_validate || g_needs_revalidate) {
+		g_needs_revalidate = false;
 		hwc2_error_t err = hwc2_compat_display_validate(
 			display, &numTypes, &numReqs);
 
@@ -207,9 +209,9 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 	return rwb_get_native(rwb);
 }
 
-static void handle_dpms_event(hwc2_compat_display_t *display)
+static void handle_dpms_event(hwc2_compat_display_t *display, bool dpms_on)
 {
-	g_display_enabled = !g_display_enabled;
+	g_display_enabled = dpms_on;
 
 	const bool change_backlight = g_has_backlight && g_droid_leds;
 
@@ -234,6 +236,9 @@ static void handle_dpms_event(hwc2_compat_display_t *display)
 		droid_leds_set_backlight(g_droid_leds, level, FALSE);
 		g_backlight_slept = false;
 	}
+
+	if (g_display_enabled)
+		g_needs_revalidate = true;
 
 	printf("membrane: DPMS %s\n", g_display_enabled ? "ON" : "OFF");
 }
@@ -261,7 +266,8 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t *display,
 					(struct drm_membrane_event *)e;
 
 				if (me->flags & MEMBRANE_DPMS_UPDATED) {
-					handle_dpms_event(display);
+					handle_dpms_event(display,
+							  me->present_id != 0);
 				}
 
 				if (me->flags & MEMBRANE_PRESENT_UPDATED) {
