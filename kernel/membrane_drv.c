@@ -111,6 +111,10 @@ static int membrane_load(struct membrane_device *mdev)
 	mdev->r = 60;
 
 	atomic_set(&mdev->next_present_id, 1);
+	atomic64_set(&mdev->pending_present, 0);
+
+	hrtimer_init(&mdev->vblank_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+	mdev->vblank_timer.function = membrane_vblank_timer_fn;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
 	ret = drm_mode_config_init(dev);
@@ -132,7 +136,7 @@ static int membrane_load(struct membrane_device *mdev)
 				       &membrane_plane_funcs, membrane_formats,
 				       ARRAY_SIZE(membrane_formats),
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
-					   NULL,
+				       NULL,
 #endif
 				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (ret) {
@@ -169,8 +173,7 @@ static int membrane_load(struct membrane_device *mdev)
 				 &membrane_connector_helper_funcs);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
-	ret = drm_connector_attach_encoder(&mdev->connector,
-						&mdev->encoder);
+	ret = drm_connector_attach_encoder(&mdev->connector, &mdev->encoder);
 #else
 	ret = drm_mode_connector_attach_encoder(&mdev->connector,
 						&mdev->encoder);

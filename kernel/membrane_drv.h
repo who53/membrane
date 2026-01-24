@@ -14,6 +14,7 @@
 #include <linux/spinlock.h>
 #include <linux/list.h>
 #include <linux/atomic.h>
+#include <linux/hrtimer.h>
 #include "uapi/membrane.h"
 
 #define MEMBRANE_MAX_FDS 4
@@ -46,6 +47,9 @@ struct membrane_device {
 
 	int w, h, r;
 	int buf_id;
+
+	atomic64_t pending_present;
+	struct hrtimer vblank_timer;
 };
 
 int membrane_config(struct drm_device *dev, void *data,
@@ -81,6 +85,7 @@ int membrane_prime_handle_to_fd(struct drm_device *dev,
 				uint32_t flags, int *prime_fd);
 int membrane_get_present_fd(struct drm_device *dev, void *data,
 			    struct drm_file *file);
+enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer *timer);
 
 static const struct drm_ioctl_desc membrane_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(MEMBRANE_GET_PRESENT_FD, membrane_get_present_fd,

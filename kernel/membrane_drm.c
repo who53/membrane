@@ -41,6 +41,45 @@ void membrane_send_event(struct membrane_device *mdev, u32 flags,
 	drm_send_event(dev, &p->base);
 }
 
+enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer *timer)
+{
+	struct membrane_device *mdev =
+		container_of(timer, struct membrane_device, vblank_timer);
+	u64 val;
+	u32 present_id, num_fds;
+	int refresh_rate;
+	u64 period_ns;
+
+	val = atomic64_xchg(&mdev->pending_present, 0);
+	if (val) {
+		present_id = val >> 32;
+		num_fds = val & 0xFFFFFFFF;
+		membrane_send_event(mdev, MEMBRANE_PRESENT_UPDATED, present_id,
+				    num_fds);
+	}
+
+	refresh_rate = READ_ONCE(mdev->r);
+	if (refresh_rate <= 0)
+		refresh_rate = 60;
+	period_ns = 1000000000ULL / refresh_rate;
+	hrtimer_forward_now(timer, ns_to_ktime(period_ns));
+	return HRTIMER_RESTART;
+}
+
+static void membrane_queue_present(struct membrane_device *mdev, u32 present_id,
+				   u32 num_fds)
+{
+	u64 val = ((u64)present_id << 32) | num_fds;
+	atomic64_set(&mdev->pending_present, val);
+
+	if (!hrtimer_active(&mdev->vblank_timer)) {
+		int r = READ_ONCE(mdev->r);
+		hrtimer_start(&mdev->vblank_timer,
+			      ns_to_ktime(1000000000ULL / (r > 0 ? r : 60)),
+			      HRTIMER_MODE_REL);
+	}
+}
+
 int membrane_config(struct drm_device *dev, void *data,
 		    struct drm_file *file_priv)
 {
@@ -235,8 +274,7 @@ int membrane_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 
 	p->id = id;
 
-	membrane_send_event(mdev, MEMBRANE_PRESENT_UPDATED, p->id,
-			    p->num_files);
+	membrane_queue_present(mdev, p->id, p->num_files);
 
 	if (event) {
 		unsigned long flags_irq;
