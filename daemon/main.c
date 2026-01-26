@@ -3,7 +3,6 @@
 
 #define _GNU_SOURCE
 
-#include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -25,7 +24,9 @@
 #include <EGL/eglext.h>
 
 #include "rwb.h"
-#include "membrane.h"
+
+#include <membrane.h>
+#include <log.h>
 
 int hybris_gralloc_allocate(int width, int height, int format, int usage,
 			    buffer_handle_t *handle, uint32_t *stride);
@@ -50,9 +51,9 @@ static uint32_t get_stride(int width, int height, int format, int usage)
 	int ret = hybris_gralloc_allocate(width, height, format, usage, &handle,
 					  &stride);
 
-	assert(ret == 0);
-	assert(handle);
-	assert(stride > 0);
+	membrane_assert(ret == 0);
+	membrane_assert(handle);
+	membrane_assert(stride > 0);
 
 	hybris_gralloc_release(handle, 1);
 
@@ -74,9 +75,9 @@ static void membrane_send_cfg(int fd, HWC2DisplayConfig *cfg)
 		u.r = 60;
 
 	int ret = ioctl(fd, DRM_IOCTL_MEMBRANE_CONFIG, &u);
-	assert(ret == 0);
+	membrane_assert(ret == 0);
 
-	printf("membrane: sent cfg %dx%d@%d\n", u.w, u.h, u.r);
+	membrane_debug("membrane: sent cfg %dx%d@%d", u.w, u.h, u.r);
 }
 
 static buffer_handle_t import_buffer_from_fds(int width, int height, int stride,
@@ -95,13 +96,13 @@ static buffer_handle_t import_buffer_from_fds(int width, int height, int stride,
 
 	int num_ints = sb.st_size / sizeof(int);
 	int *ints = calloc(num_ints, sizeof(int));
-	assert(ints);
+	membrane_assert(ints);
 
 	lseek(meta_fd, 0, SEEK_SET);
 	read(meta_fd, ints, sb.st_size);
 
 	native_handle_t *nh = native_handle_create(plane_fds, num_ints);
-	assert(nh);
+	membrane_assert(nh);
 
 	for (int i = 0; i < plane_fds; i++)
 		nh->data[i] = fds[i];
@@ -133,14 +134,14 @@ static void do_present_block(hwc2_compat_display_t *display,
 			display, &numTypes, &numReqs);
 
 		if (err != HWC2_ERROR_NONE && err != HWC2_ERROR_HAS_CHANGES) {
-			fprintf(stderr,
-				"hwc2_compat_display_validate failed: err=%d\n",
+			membrane_err(
+				"hwc2_compat_display_validate failed: err=%d",
 				err);
 		}
 
 		if (numTypes || numReqs) {
 			err = hwc2_compat_display_accept_changes(display);
-			assert(err == HWC2_ERROR_NONE);
+			membrane_assert(err == HWC2_ERROR_NONE);
 			needs_validate = true;
 		} else {
 			needs_validate = false;
@@ -150,13 +151,13 @@ static void do_present_block(hwc2_compat_display_t *display,
 	int32_t presentFence = -1;
 	hwc2_error_t err = hwc2_compat_display_present(display, &presentFence);
 	if (err != HWC2_ERROR_NONE) {
-		fprintf(stderr,
-			"hwc2_compat_display_present failed: err=%d (is compositor dead?)\n",
+		membrane_err(
+			"hwc2_compat_display_present failed: err=%d (is compositor dead?)",
 			err);
 		return;
 	}
 
-	assert(err == HWC2_ERROR_NONE);
+	membrane_assert(err == HWC2_ERROR_NONE);
 	if (g_last_buffer != NULL) {
 		g_last_buffer->common.decRef(&g_last_buffer->common);
 	}
@@ -183,13 +184,12 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 	}
 
 	if (arg.num_fds < 2) {
-		fprintf(stderr, "membrane: insufficient fds (%u)\n",
-			arg.num_fds);
+		membrane_err("membrane: insufficient fds (%u)", arg.num_fds);
 		return NULL;
 	}
 
 	if (arg.num_fds > 4) {
-		fprintf(stderr, "membrane: too many fds (%u)\n", arg.num_fds);
+		membrane_err("membrane: too many fds (%u)", arg.num_fds);
 		return NULL;
 	}
 
@@ -240,7 +240,7 @@ static void handle_dpms_event(hwc2_compat_display_t *display, bool dpms_on)
 	if (g_display_enabled)
 		g_needs_revalidate = true;
 
-	printf("membrane: DPMS %s\n", g_display_enabled ? "ON" : "OFF");
+	membrane_debug("membrane: DPMS %s", g_display_enabled ? "ON" : "OFF");
 }
 
 static void membrane_event_loop(int mfd, hwc2_compat_display_t *display,
@@ -298,24 +298,24 @@ static void on_vsync(HWC2EventListener *l, int32_t id, hwc2_display_t d,
 static void on_hotplug(HWC2EventListener *l, int32_t id, hwc2_display_t d,
 		       bool c, bool p)
 {
-	printf("hotplug display=%lu connected=%d primary=%d\n", d, c, p);
+	membrane_debug("hotplug display=%lu connected=%d primary=%d", d, c, p);
 }
 
 static void on_refresh(HWC2EventListener *l, int32_t id, hwc2_display_t d)
 {
-	printf("refresh display=%lu\n", d);
+	membrane_debug("refresh display=%lu", d);
 }
 
 int main(void)
 {
 	int mfd = open("/dev/dri/by-path/platform-membrane-card",
 		       O_RDWR | O_CLOEXEC);
-	assert(mfd >= 0);
+	membrane_assert(mfd >= 0);
 
 	drmDropMaster(mfd);
 
 	hwc2_compat_device_t *device = hwc2_compat_device_new(false);
-	assert(device);
+	membrane_assert(device);
 
 	HWC2EventListener listener = {};
 	listener.on_vsync_received = on_vsync;
@@ -327,15 +327,14 @@ int main(void)
 
 	hwc2_compat_display_t *display =
 		hwc2_compat_device_get_display_by_id(device, 0);
-	assert(display);
+	membrane_assert(display);
 
 	if (getenv("MEMBRANE_BACKLIGHT")) {
 		GError *err = NULL;
 
 		g_droid_leds = droid_leds_new(&err);
 		if (err) {
-			fprintf(stderr, "libdroid: init failed: %s\n",
-				err->message);
+			membrane_err("libdroid: init failed: %s", err->message);
 			g_error_free(err);
 			g_droid_leds = NULL;
 		} else {
@@ -343,7 +342,7 @@ int main(void)
 
 			(void)droid_leds_get_backlight(g_droid_leds);
 
-			printf("libdroid: backlight control enabled\n");
+			membrane_debug("libdroid: backlight control enabled");
 		}
 	}
 
@@ -351,10 +350,10 @@ int main(void)
 	hwc2_compat_display_set_vsync_enabled(display, HWC2_VSYNC_ENABLE);
 
 	HWC2DisplayConfig *cfg = hwc2_compat_display_get_active_config(display);
-	assert(cfg);
+	membrane_assert(cfg);
 
 	g_layer = hwc2_compat_display_create_layer(display);
-	assert(g_layer);
+	membrane_assert(g_layer);
 
 	hwc2_compat_layer_set_blend_mode(g_layer, HWC2_BLEND_MODE_NONE);
 	hwc2_compat_layer_set_composition_type(g_layer,
@@ -366,15 +365,15 @@ int main(void)
 	hwc2_compat_layer_set_visible_region(g_layer, 0, 0, cfg->width,
 					     cfg->height);
 
-	printf("Display %dx%d\n", cfg->width, cfg->height);
+	membrane_debug("Display %dx%d", cfg->width, cfg->height);
 
 	g_stride =
 		get_stride(cfg->width, cfg->height, HAL_PIXEL_FORMAT_RGBA_8888,
 			   GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE |
 				   GRALLOC_USAGE_HW_COMPOSER);
 
-	printf("Using cached gralloc stride = %u (width = %u)\n", g_stride,
-	       cfg->width);
+	membrane_debug("Using cached gralloc stride = %u (width = %u)",
+		       g_stride, cfg->width);
 
 	membrane_send_cfg(mfd, cfg);
 

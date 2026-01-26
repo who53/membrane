@@ -1,3 +1,3 @@
-*.so
-*.o
-membrane
+build/
+_build/
+.cache/

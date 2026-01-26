@@ -3,8 +3,8 @@
 
 #include "rwb.h"
 #include <windowbuffer.h>
-#include <assert.h>
 #include <string.h>
+#include <log.h>
 
 static struct {
 	unsigned int width;
@@ -29,7 +29,7 @@ void rwb_set_properties(unsigned int width, unsigned int height,
 
 rwb_t *rwb_new(buffer_handle_t handle)
 {
-	assert(g_config.initialized);
+	membrane_assert(g_config.initialized);
 
 	RemoteWindowBuffer *wb = new RemoteWindowBuffer(
 		g_config.width, g_config.height, g_config.stride,
