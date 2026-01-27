@@ -4,10 +4,11 @@
 #ifndef _MEMBRANE_DRV_H_
 #define _MEMBRANE_DRV_H_
 
-#include <drm/drmP.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_plane_helper.h>
+#include <drm/drm_encoder.h>
+#include <drm/drm_connector.h>
 
 #include <linux/version.h>
 #include <linux/wait.h>
