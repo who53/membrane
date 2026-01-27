@@ -19,7 +19,7 @@ void membrane_send_event(struct membrane_device *mdev, u32 flags,
 	if (!file)
 		return;
 
-	p = kzalloc(sizeof(*p), GFP_KERNEL);
+	p = kzalloc(sizeof(*p), GFP_ATOMIC);
 	if (!p)
 		return;
 
@@ -111,7 +111,7 @@ static void membrane_fb_destroy(struct drm_framebuffer *fb)
 	struct membrane_framebuffer *mfb = to_membrane_framebuffer(fb);
 	int i;
 
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
 		if (mfb->files[i]) {
 			fput(mfb->files[i]);
 			mfb->files[i] = NULL;
@@ -131,8 +131,6 @@ membrane_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		   const struct drm_mode_fb_cmd2 *mode_cmd)
 {
 	struct membrane_framebuffer *mfb;
-	struct membrane_device *mdev =
-		container_of(dev, struct membrane_device, dev);
 	int ret, i;
 
 	membrane_debug("%s", __func__);
@@ -150,22 +148,18 @@ membrane_fb_create(struct drm_device *dev, struct drm_file *file_priv,
 		return ERR_PTR(ret);
 	}
 
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
 		if (mode_cmd->handles[i] != 0) {
-			uint32_t h = mode_cmd->handles[i];
-			if (h < 1 || h > 4) {
-				membrane_debug("Invalid handle %u", h);
-				ret = -EINVAL;
-				goto err_cleanup;
-			}
-			mfb->files[i] = mdev->imported_files[h - 1];
+			mfb->files[i] = membrane_gem_handle_to_file(
+				file_priv, mode_cmd->handles[i]);
 			if (!mfb->files[i]) {
-				membrane_debug("No file for handle %u", h);
+				membrane_debug(
+					"Failed to get file for handle %u",
+					mode_cmd->handles[i]);
 				ret = -ENOENT;
 				goto err_cleanup;
 			}
-			get_file(mfb->files[i]);
-			mfb->handles[i] = h;
+			mfb->handles[i] = mode_cmd->handles[i];
 		}
 	}
 
@@ -197,11 +191,25 @@ void membrane_crtc_disable(struct drm_crtc *crtc)
 {
 	struct membrane_device *mdev =
 		container_of(crtc->dev, struct membrane_device, dev);
+	int i, j;
 
 	membrane_debug("%s", __func__);
 
 	if (!crtc->dev->master) {
-		membrane_debug("compositor has died");
+		membrane_debug("compositor has died, resetting state");
+		for (i = 0; i < MAX_PRESENTS; i++) {
+			struct membrane_present *p = &mdev->presents[i];
+			for (j = 0; j < MEMBRANE_MAX_FDS; j++) {
+				if (p->files[j]) {
+					fput(p->files[j]);
+					p->files[j] = NULL;
+				}
+				p->fds[j] = -1;
+			}
+			p->fds_valid = false;
+			p->id = 0;
+		}
+		atomic64_set(&mdev->pending_present, 0);
 		return;
 	}
 
@@ -260,7 +268,7 @@ int membrane_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	id = (u32)atomic_inc_return(&mdev->next_present_id);
 	p = &mdev->presents[id % MAX_PRESENTS];
 
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
 		if (p->files[i] != mfb->files[i]) {
 			if (p->files[i])
 				fput(p->files[i]);
@@ -271,7 +279,7 @@ int membrane_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	}
 
 	p->num_files = 0;
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
 		if (p->files[i])
 			p->num_files++;
 	}
@@ -288,39 +296,6 @@ int membrane_page_flip(struct drm_crtc *crtc, struct drm_framebuffer *fb,
 	}
 
 	return 0;
-}
-
-int membrane_prime_fd_to_handle(struct drm_device *dev,
-				struct drm_file *file_priv, int prime_fd,
-				uint32_t *handle)
-{
-	struct membrane_device *mdev =
-		container_of(dev, struct membrane_device, dev);
-	struct file *file;
-	int slot;
-
-	membrane_debug("%s", __func__);
-
-	file = fget(prime_fd);
-	if (!file)
-		return -EBADF;
-
-	slot = (u32)atomic_inc_return(&mdev->next_present_id) % 4;
-
-	if (mdev->imported_files[slot])
-		fput(mdev->imported_files[slot]);
-
-	mdev->imported_files[slot] = file;
-	*handle = slot + 1;
-
-	return 0;
-}
-
-int membrane_prime_handle_to_fd(struct drm_device *dev,
-				struct drm_file *file_priv, uint32_t handle,
-				uint32_t flags, int *prime_fd)
-{
-	return -ENOSYS;
 }
 
 int membrane_get_present_fd(struct drm_device *dev, void *data,

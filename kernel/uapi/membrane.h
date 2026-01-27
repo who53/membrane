@@ -13,6 +13,8 @@
 #define MEMBRANE_PRESENT_UPDATED (1 << 0)
 #define MEMBRANE_DPMS_UPDATED (1 << 1)
 
+#define MEMBRANE_MAX_FDS 4
+
 #define DRM_MEMBRANE_EVENT 0x80000001
 
 struct drm_membrane_event {
@@ -32,7 +34,7 @@ struct membrane_u2k_cfg {
 struct membrane_get_present_fd {
 	__u32 present_id;
 	__u32 num_fds;
-	__s32 fds[4];
+	__s32 fds[MEMBRANE_MAX_FDS];
 };
 
 #define DRM_MEMBRANE_GET_PRESENT_FD 0x23

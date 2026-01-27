@@ -98,7 +98,7 @@ static const struct drm_connector_funcs membrane_connector_funcs = {
 };
 
 static const uint32_t membrane_formats[] = {
-	DRM_FORMAT_XRGB8888,
+	DRM_FORMAT_ARGB8888,
 };
 
 static int membrane_load(struct membrane_device *mdev)
@@ -116,14 +116,14 @@ static int membrane_load(struct membrane_device *mdev)
 	hrtimer_init(&mdev->vblank_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	mdev->vblank_timer.function = membrane_vblank_timer_fn;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
+	drm_mode_config_init(dev);
+#else
 	ret = drm_mode_config_init(dev);
 	if (ret) {
 		membrane_debug("drm_mode_config_init failed: %d", ret);
 		return ret;
 	}
-#else
-	drm_mode_config_init(dev);
 #endif
 
 	dev->mode_config.min_width = 0;
@@ -135,10 +135,11 @@ static int membrane_load(struct membrane_device *mdev)
 	ret = drm_universal_plane_init(dev, &mdev->plane, 0,
 				       &membrane_plane_funcs, membrane_formats,
 				       ARRAY_SIZE(membrane_formats),
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
-				       NULL,
-#endif
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 				       DRM_PLANE_TYPE_PRIMARY, NULL);
+#else
+				       NULL, DRM_PLANE_TYPE_PRIMARY, NULL);
+#endif
 	if (ret) {
 		membrane_debug("drm_universal_plane_init failed: %d", ret);
 		return ret;
@@ -172,11 +173,11 @@ static int membrane_load(struct membrane_device *mdev)
 	drm_connector_helper_add(&mdev->connector,
 				 &membrane_connector_helper_funcs);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
-	ret = drm_connector_attach_encoder(&mdev->connector, &mdev->encoder);
-#else
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0)
 	ret = drm_mode_connector_attach_encoder(&mdev->connector,
 						&mdev->encoder);
+#else
+	ret = drm_connector_attach_encoder(&mdev->connector, &mdev->encoder);
 #endif
 	if (ret) {
 		membrane_debug("drm_mode_connector_attach_encoder failed: %d",
@@ -220,13 +221,6 @@ static void membrane_postclose(struct drm_device *dev, struct drm_file *file)
 			p->fds_valid = false;
 			p->id = 0;
 		}
-
-		for (i = 0; i < 4; i++) {
-			if (mdev->imported_files[i]) {
-				fput(mdev->imported_files[i]);
-				mdev->imported_files[i] = NULL;
-			}
-		}
 	}
 }
 
@@ -252,6 +246,7 @@ static struct drm_driver membrane_driver = {
 	.patchlevel = 0,
 	.prime_fd_to_handle = membrane_prime_fd_to_handle,
 	.prime_handle_to_fd = membrane_prime_handle_to_fd,
+	.gem_free_object = membrane_gem_free_object,
 	.ioctls = membrane_ioctls,
 	.num_ioctls = ARRAY_SIZE(membrane_ioctls),
 	.postclose = membrane_postclose,
