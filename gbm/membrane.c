@@ -8,11 +8,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <errno.h>
 #include <unistd.h>
-#include <fcntl.h>
 #include <sys/mman.h>
 
+#include <xf86drm.h>
 #include <hardware/gralloc.h>
 
 #include <log.h>
@@ -293,6 +292,21 @@ struct gbm_device *membrane_device_create(int fd, uint32_t gbm_backend_version)
 {
 	membrane_debug("membrane: %s(fd=%d, version=%u)", __func__, fd,
 		       gbm_backend_version);
+
+	drmVersionPtr version = drmGetVersion(fd);
+	if (!version) {
+		membrane_debug("membrane: %s: not a DRM device", __func__);
+		return NULL;
+	}
+
+	if (strcmp(version->name, "membrane") != 0) {
+		membrane_debug("membrane: %s: not a membrane device: %s",
+			       __func__, version->name);
+		drmFreeVersion(version);
+		return NULL;
+	}
+	drmFreeVersion(version);
+
 	struct gbm_device *gbm = calloc(1, sizeof(struct gbm_device));
 	if (!gbm)
 		return NULL;
