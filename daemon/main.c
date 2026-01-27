@@ -10,7 +10,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -19,9 +18,6 @@
 #include <xf86drm.h>
 #include <hybris/hwc2/hwc2_compatibility_layer.h>
 #include <libdroid/leds.h>
-
-#include <EGL/egl.h>
-#include <EGL/eglext.h>
 
 #include "rwb.h"
 
@@ -188,7 +184,7 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 		return NULL;
 	}
 
-	if (arg.num_fds > 4) {
+	if (arg.num_fds > MEMBRANE_MAX_FDS) {
 		membrane_err("membrane: too many fds (%u)", arg.num_fds);
 		return NULL;
 	}
