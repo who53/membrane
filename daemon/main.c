@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <string.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -73,7 +74,7 @@ static void membrane_send_cfg(int fd, HWC2DisplayConfig *cfg)
 	int ret = ioctl(fd, DRM_IOCTL_MEMBRANE_CONFIG, &u);
 	membrane_assert(ret == 0);
 
-	membrane_debug("membrane: sent cfg %dx%d@%d", u.w, u.h, u.r);
+	membrane_debug("sent cfg %dx%d@%d", u.w, u.h, u.r);
 }
 
 static buffer_handle_t import_buffer_from_fds(int width, int height, int stride,
@@ -175,17 +176,17 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 	};
 
 	if (ioctl(mfd, DRM_IOCTL_MEMBRANE_GET_PRESENT_FD, &arg) < 0) {
-		perror("MEMBRANE_GET_PRESENT_FD");
+		membrane_err("MEMBRANE_GET_PRESENT_FD: %s", strerror(errno));
 		return NULL;
 	}
 
 	if (arg.num_fds < 2) {
-		membrane_err("membrane: insufficient fds (%u)", arg.num_fds);
+		membrane_err("insufficient fds (%u)", arg.num_fds);
 		return NULL;
 	}
 
 	if (arg.num_fds > MEMBRANE_MAX_FDS) {
-		membrane_err("membrane: too many fds (%u)", arg.num_fds);
+		membrane_err("too many fds (%u)", arg.num_fds);
 		return NULL;
 	}
 
@@ -236,7 +237,7 @@ static void handle_dpms_event(hwc2_compat_display_t *display, bool dpms_on)
 	if (g_display_enabled)
 		g_needs_revalidate = true;
 
-	membrane_debug("membrane: DPMS %s", g_display_enabled ? "ON" : "OFF");
+	membrane_debug("DPMS %s", g_display_enabled ? "ON" : "OFF");
 }
 
 static void membrane_event_loop(int mfd, hwc2_compat_display_t *display,
@@ -249,7 +250,7 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t *display,
 		if (len < 0) {
 			if (errno == EINTR)
 				continue;
-			perror("drm read");
+			membrane_err("drm read: %s", strerror(errno));
 			continue;
 		}
 
