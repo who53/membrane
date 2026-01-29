@@ -1,7 +1,3 @@
-gbm_dep = dependency('gbm', method: 'pkg-config')
-libgralloc_dep = dependency('libgralloc', method: 'pkg-config')
-drm_dep = dependency('libdrm', method: 'pkg-config')
-
 shared_library(
   'membrane_gbm',
   'membrane.c',
@@ -10,11 +6,8 @@ shared_library(
   dependencies: [
     gbm_dep,
     libgralloc_dep,
-    drm_dep,
+    libdrm_dep,
   ],
   install: true,
-  install_dir: join_paths(
-    get_option('libdir'),
-    'gbm',
-  ),
+  install_dir: join_paths(get_option('libdir'), 'gbm',),
 )
