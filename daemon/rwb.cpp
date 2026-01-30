@@ -44,24 +44,6 @@ rwb_t *rwb_new(buffer_handle_t handle)
 	return reinterpret_cast<rwb_t *>(wb);
 }
 
-void rwb_destroy(rwb_t *buffer)
-{
-	if (buffer) {
-		RemoteWindowBuffer *wb =
-			reinterpret_cast<RemoteWindowBuffer *>(buffer);
-		wb->common.decRef(&wb->common);
-	}
-}
-
-void rwb_acquire(rwb_t *buffer)
-{
-	if (buffer) {
-		RemoteWindowBuffer *wb =
-			reinterpret_cast<RemoteWindowBuffer *>(buffer);
-		wb->common.incRef(&wb->common);
-	}
-}
-
 struct ANativeWindowBuffer *rwb_get_native(rwb_t *buffer)
 {
 	if (buffer) {
@@ -70,23 +52,4 @@ struct ANativeWindowBuffer *rwb_get_native(rwb_t *buffer)
 		return wb->getNativeBuffer();
 	}
 	return NULL;
-}
-
-void rwb_set_allocated(rwb_t *buffer, int allocated)
-{
-	if (buffer) {
-		RemoteWindowBuffer *wb =
-			reinterpret_cast<RemoteWindowBuffer *>(buffer);
-		wb->setAllocated(allocated != 0);
-	}
-}
-
-int rwb_is_allocated(rwb_t *buffer)
-{
-	if (buffer) {
-		RemoteWindowBuffer *wb =
-			reinterpret_cast<RemoteWindowBuffer *>(buffer);
-		return wb->isAllocated() ? 1 : 0;
-	}
-	return 0;
 }

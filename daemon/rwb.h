@@ -19,15 +19,7 @@ void rwb_set_properties(unsigned int width, unsigned int height,
 
 rwb_t *rwb_new(buffer_handle_t handle);
 
-void rwb_destroy(rwb_t *buffer);
-
-void rwb_acquire(rwb_t *buffer);
-
 struct ANativeWindowBuffer *rwb_get_native(rwb_t *buffer);
-
-void rwb_set_allocated(rwb_t *buffer, int allocated);
-
-int rwb_is_allocated(rwb_t *buffer);
 
 #ifdef __cplusplus
 }

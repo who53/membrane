@@ -77,9 +77,7 @@ static void membrane_send_cfg(int fd, HWC2DisplayConfig *cfg)
 	membrane_debug("sent cfg %dx%d@%d", u.w, u.h, u.r);
 }
 
-static buffer_handle_t import_buffer_from_fds(int width, int height, int stride,
-					      int format, int usage, int *fds,
-					      int num_fds)
+static buffer_handle_t import_buffer_from_fds(int *fds, int num_fds)
 {
 	if (num_fds < 2)
 		return NULL;
@@ -91,12 +89,18 @@ static buffer_handle_t import_buffer_from_fds(int width, int height, int stride,
 	if (fstat(meta_fd, &sb) < 0 || sb.st_size <= 0)
 		return NULL;
 
+	int ints[64];
+	if (sb.st_size > (off_t)sizeof(ints)) {
+		membrane_err("metadata too large (%zd bytes)",
+			     (size_t)sb.st_size);
+		return NULL;
+	}
+
 	int num_ints = sb.st_size / sizeof(int);
-	int *ints = calloc(num_ints, sizeof(int));
-	membrane_assert(ints);
 
 	lseek(meta_fd, 0, SEEK_SET);
-	read(meta_fd, ints, sb.st_size);
+	if (read(meta_fd, ints, sb.st_size) != (ssize_t)sb.st_size)
+		return NULL;
 
 	native_handle_t *nh = native_handle_create(plane_fds, num_ints);
 	membrane_assert(nh);
@@ -111,7 +115,6 @@ static buffer_handle_t import_buffer_from_fds(int width, int height, int stride,
 	hybris_gralloc_import_buffer(nh, &handle);
 
 	native_handle_delete(nh);
-	free(ints);
 
 	return handle;
 }
@@ -167,9 +170,8 @@ static void do_present_block(hwc2_compat_display_t *display,
 	g_last_buffer->common.incRef(&g_last_buffer->common);
 }
 
-static struct ANativeWindowBuffer *
-membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
-			uint32_t expected_num_fds)
+static struct ANativeWindowBuffer *membrane_handle_present(int mfd,
+							   uint32_t present_id)
 {
 	struct membrane_get_present_fd arg = {
 		.present_id = present_id,
@@ -190,11 +192,7 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 		return NULL;
 	}
 
-	buffer_handle_t handle = import_buffer_from_fds(
-		cfg->width, cfg->height, g_stride, HAL_PIXEL_FORMAT_RGBA_8888,
-		GRALLOC_USAGE_HW_RENDER | GRALLOC_USAGE_HW_TEXTURE |
-			GRALLOC_USAGE_HW_COMPOSER,
-		arg.fds, arg.num_fds);
+	buffer_handle_t handle = import_buffer_from_fds(arg.fds, arg.num_fds);
 
 	if (!handle)
 		return NULL;
@@ -272,9 +270,7 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t *display,
 				if (me->flags & MEMBRANE_PRESENT_UPDATED) {
 					struct ANativeWindowBuffer *anw =
 						membrane_handle_present(
-							mfd, cfg,
-							me->present_id,
-							me->num_fds);
+							mfd, me->present_id);
 
 					if (anw) {
 						do_present_block(display, anw);
