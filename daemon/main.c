@@ -200,8 +200,10 @@ membrane_handle_present(int mfd, HWC2DisplayConfig *cfg, uint32_t present_id,
 		return NULL;
 
 	rwb_t *rwb = rwb_new(handle);
-	if (!rwb)
+	if (!rwb) {
+		hybris_gralloc_release(handle, 1);
 		return NULL;
+	}
 
 	return rwb_get_native(rwb);
 }
