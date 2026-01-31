@@ -630,7 +630,7 @@ membranews_eglQueryDmaBufModifiersEXT(EGLDisplay dpy, EGLint format,
 {
 	(void)dpy;
 
-	if (format != DRM_FORMAT_ARGB8888)
+	if (format != DRM_FORMAT_ARGB8888 && format != DRM_FORMAT_XRGB8888)
 		return EGL_FALSE;
 
 	if (num_modifiers)
@@ -652,9 +652,12 @@ membranews_eglQueryDmaBufFormatsEXT(EGLDisplay dpy, EGLint max_formats,
 	if (!num_formats)
 		return EGL_FALSE;
 
-	*num_formats = 1;
-	if (max_formats > 0 && formats)
+	*num_formats = 2;
+	if (max_formats > 0 && formats) {
 		formats[0] = DRM_FORMAT_ARGB8888;
+		if (max_formats > 1)
+			formats[1] = DRM_FORMAT_XRGB8888;
+	}
 
 	return EGL_TRUE;
 }
