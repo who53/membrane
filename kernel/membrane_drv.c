@@ -99,6 +99,7 @@ static const struct drm_connector_funcs membrane_connector_funcs = {
 
 static const uint32_t membrane_formats[] = {
 	DRM_FORMAT_ARGB8888,
+	DRM_FORMAT_XRGB8888,
 };
 
 static int membrane_load(struct membrane_device *mdev)
