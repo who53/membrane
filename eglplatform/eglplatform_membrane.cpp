@@ -487,15 +487,25 @@ membranews_CreateWindow(EGLNativeWindowType win, struct _EGLDisplay *display) {
 
 	if (!dpy->dmabuf) {
 		struct wl_registry *registry = wl_display_get_registry(dpy->wl_dpy);
-		wl_registry_add_listener(registry, &registry_listener, dpy);
-		wl_display_roundtrip(dpy->wl_dpy);
+		struct wl_event_queue *queue = wl_display_create_queue(dpy->wl_dpy);
 
-		if (!dpy->dmabuf) {
+		wl_proxy_set_queue((struct wl_proxy *)registry, queue);
+
+		wl_registry_add_listener(registry, &registry_listener, dpy);
+
+		wl_display_roundtrip_queue(dpy->wl_dpy, queue);
+
+		if (dpy->dmabuf) {
+			wl_proxy_set_queue((struct wl_proxy *)dpy->dmabuf, NULL);
+		} else {
 			membrane_err("zwp_linux_dmabuf_v1 not supported");
 			wl_registry_destroy(registry);
+			wl_event_queue_destroy(queue);
 			return 0;
 		}
+
 		wl_registry_destroy(registry);
+		wl_event_queue_destroy(queue);
 	}
 
 	MembraneNativeWindow *w =
