@@ -13,13 +13,12 @@ extern "C" {
 
 typedef struct rwb rwb_t;
 
-void rwb_set_properties(unsigned int width, unsigned int height,
-			unsigned int stride, unsigned int format,
-			uint64_t usage);
+void rwb_set_properties(unsigned int width, unsigned int height, unsigned int stride,
+    unsigned int format, uint64_t usage);
 
-rwb_t *rwb_new(buffer_handle_t handle);
+rwb_t* rwb_new(buffer_handle_t handle);
 
-struct ANativeWindowBuffer *rwb_get_native(rwb_t *buffer);
+struct ANativeWindowBuffer* rwb_get_native(rwb_t* buffer);
 
 #ifdef __cplusplus
 }

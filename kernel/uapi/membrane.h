@@ -18,33 +18,32 @@
 #define DRM_MEMBRANE_EVENT 0x80000001
 
 struct drm_membrane_event {
-	struct drm_event base;
-	__u32 flags;
-	__u32 present_id;
-	__u32 num_fds;
+    struct drm_event base;
+    __u32 flags;
+    __u32 present_id;
+    __u32 num_fds;
 };
 
 struct membrane_u2k_cfg {
-	int32_t w;
-	int32_t h;
-	int32_t r;
-	int32_t __reserved;
+    int32_t w;
+    int32_t h;
+    int32_t r;
+    int32_t __reserved;
 };
 
 struct membrane_get_present_fd {
-	__u32 present_id;
-	__u32 num_fds;
-	__s32 fds[MEMBRANE_MAX_FDS];
+    __u32 present_id;
+    __u32 num_fds;
+    __s32 fds[MEMBRANE_MAX_FDS];
 };
 
 #define DRM_MEMBRANE_GET_PRESENT_FD 0x23
 #define DRM_MEMBRANE_CONFIG 0x24
 
-#define DRM_IOCTL_MEMBRANE_GET_PRESENT_FD                        \
-	DRM_IOWR(DRM_COMMAND_BASE + DRM_MEMBRANE_GET_PRESENT_FD, \
-		 struct membrane_get_present_fd)
+#define DRM_IOCTL_MEMBRANE_GET_PRESENT_FD                                                          \
+    DRM_IOWR(DRM_COMMAND_BASE + DRM_MEMBRANE_GET_PRESENT_FD, struct membrane_get_present_fd)
 
-#define DRM_IOCTL_MEMBRANE_CONFIG \
-	DRM_IOW(DRM_COMMAND_BASE + DRM_MEMBRANE_CONFIG, struct membrane_u2k_cfg)
+#define DRM_IOCTL_MEMBRANE_CONFIG                                                                  \
+    DRM_IOW(DRM_COMMAND_BASE + DRM_MEMBRANE_CONFIG, struct membrane_u2k_cfg)
 
 #endif
