@@ -155,10 +155,8 @@ static void do_present_block(hwc2_compat_display_t* display, struct ANativeWindo
     g_last_buffer->common.incRef(&g_last_buffer->common);
 }
 
-static struct ANativeWindowBuffer* membrane_handle_present(int mfd, uint32_t present_id) {
-    struct membrane_get_present_fd arg = {
-        .present_id = present_id,
-    };
+static struct ANativeWindowBuffer* membrane_handle_present(int mfd) {
+    struct membrane_get_present_fd arg = {};
 
     if (ioctl(mfd, DRM_IOCTL_MEMBRANE_GET_PRESENT_FD, &arg) < 0) {
         membrane_err("MEMBRANE_GET_PRESENT_FD: %s", strerror(errno));
@@ -167,15 +165,19 @@ static struct ANativeWindowBuffer* membrane_handle_present(int mfd, uint32_t pre
 
     if (arg.num_fds < 2) {
         membrane_err("insufficient fds (%u)", arg.num_fds);
-        return NULL;
-    }
-
-    if (arg.num_fds > MEMBRANE_MAX_FDS) {
-        membrane_err("too many fds (%u)", arg.num_fds);
+        for (uint32_t i = 0; i < arg.num_fds; i++) {
+            if (arg.fds[i] >= 0)
+                close(arg.fds[i]);
+        }
         return NULL;
     }
 
     buffer_handle_t handle = import_buffer_from_fds(arg.fds, arg.num_fds);
+
+    for (uint32_t i = 0; i < arg.num_fds; i++) {
+        if (arg.fds[i] >= 0)
+            close(arg.fds[i]);
+    }
 
     if (!handle)
         return NULL;
@@ -240,11 +242,11 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t* display, HWC2Dis
                 struct drm_membrane_event* me = (struct drm_membrane_event*)e;
 
                 if (me->flags & MEMBRANE_DPMS_UPDATED) {
-                    handle_dpms_event(display, me->present_id != 0);
+                    handle_dpms_event(display, (me->flags & MEMBRANE_PRESENT_UPDATED) == 0);
                 }
 
                 if (me->flags & MEMBRANE_PRESENT_UPDATED) {
-                    struct ANativeWindowBuffer* anw = membrane_handle_present(mfd, me->present_id);
+                    struct ANativeWindowBuffer* anw = membrane_handle_present(mfd);
 
                     if (anw) {
                         do_present_block(display, anw);
