@@ -39,6 +39,12 @@ static ANativeWindowBuffer* g_last_buffer = NULL;
 static hwc2_compat_layer_t* g_layer = NULL;
 static bool g_needs_revalidate = true;
 
+#define BUFFER_CACHE_SIZE 64
+static struct {
+    uint32_t id;
+    struct ANativeWindowBuffer* anw;
+} g_buffer_cache[BUFFER_CACHE_SIZE];
+
 static uint32_t get_stride(int width, int height, int format, int usage) {
     buffer_handle_t handle = NULL;
     uint32_t stride = 0;
@@ -116,7 +122,9 @@ static void do_present_block(hwc2_compat_display_t* display, struct ANativeWindo
     uint32_t numReqs = 0;
     static bool needs_validate = true;
 
-    hwc2_compat_layer_set_buffer(g_layer, 0, anw, -1);
+    if (anw != g_last_buffer || g_needs_revalidate) {
+        hwc2_compat_layer_set_buffer(g_layer, 0, anw, -1);
+    }
 
     if (needs_validate || g_needs_revalidate) {
         g_needs_revalidate = false;
@@ -139,20 +147,21 @@ static void do_present_block(hwc2_compat_display_t* display, struct ANativeWindo
     hwc2_error_t err = hwc2_compat_display_present(display, &presentFence);
     if (err != HWC2_ERROR_NONE) {
         membrane_err("hwc2_compat_display_present failed: err=%d (is compositor dead?)", err);
-        return;
+        goto out;
     }
 
-    membrane_assert(err == HWC2_ERROR_NONE);
-    if (g_last_buffer != NULL) {
-        g_last_buffer->common.decRef(&g_last_buffer->common);
+    if (g_last_buffer != anw) {
+        if (g_last_buffer != NULL) {
+            g_last_buffer->common.decRef(&g_last_buffer->common);
+        }
+        g_last_buffer = anw;
+        g_last_buffer->common.incRef(&g_last_buffer->common);
     }
 
+out:
     if (presentFence != -1) {
         close(presentFence);
     }
-
-    g_last_buffer = anw;
-    g_last_buffer->common.incRef(&g_last_buffer->common);
 }
 
 static struct ANativeWindowBuffer* membrane_handle_present(int mfd) {
@@ -161,6 +170,17 @@ static struct ANativeWindowBuffer* membrane_handle_present(int mfd) {
     if (ioctl(mfd, DRM_IOCTL_MEMBRANE_GET_PRESENT_FD, &arg) < 0) {
         membrane_err("MEMBRANE_GET_PRESENT_FD: %s", strerror(errno));
         return NULL;
+    }
+
+    uint32_t slot = arg.buffer_id % BUFFER_CACHE_SIZE;
+    if (g_buffer_cache[slot].anw && g_buffer_cache[slot].id == arg.buffer_id) {
+        for (uint32_t i = 0; i < arg.num_fds; i++) {
+            if (arg.fds[i] >= 0)
+                close(arg.fds[i]);
+        }
+        struct ANativeWindowBuffer* anw = g_buffer_cache[slot].anw;
+        anw->common.incRef(&anw->common);
+        return anw;
     }
 
     if (arg.num_fds < 2) {
@@ -188,7 +208,16 @@ static struct ANativeWindowBuffer* membrane_handle_present(int mfd) {
         return NULL;
     }
 
-    return rwb_get_native(rwb);
+    struct ANativeWindowBuffer* anw = rwb_get_native(rwb);
+
+    if (g_buffer_cache[slot].anw) {
+        g_buffer_cache[slot].anw->common.decRef(&g_buffer_cache[slot].anw->common);
+    }
+    g_buffer_cache[slot].id = arg.buffer_id;
+    g_buffer_cache[slot].anw = anw;
+    anw->common.incRef(&anw->common);
+
+    return anw;
 }
 
 static void handle_dpms_event(hwc2_compat_display_t* display, bool dpms_on) {

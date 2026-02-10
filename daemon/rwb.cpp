@@ -43,7 +43,8 @@ rwb_t* rwb_new(buffer_handle_t handle) {
 struct ANativeWindowBuffer* rwb_get_native(rwb_t* buffer) {
     if (buffer) {
         RemoteWindowBuffer* wb = reinterpret_cast<RemoteWindowBuffer*>(buffer);
-        return wb->getNativeBuffer();
+        struct ANativeWindowBuffer* anw = wb->getNativeBuffer();
+        return anw;
     }
     return NULL;
 }
