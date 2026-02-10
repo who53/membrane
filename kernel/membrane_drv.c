@@ -8,17 +8,32 @@
 
 static const struct drm_mode_config_funcs membrane_mode_config_funcs = {
     .fb_create = membrane_fb_create,
+    .atomic_check = drm_atomic_helper_check,
+    .atomic_commit = drm_atomic_helper_commit,
 };
 
 static const struct drm_plane_funcs membrane_plane_funcs = {
-    .update_plane = drm_plane_helper_update,
-    .disable_plane = drm_plane_helper_disable,
+    .update_plane = drm_atomic_helper_update_plane,
+    .disable_plane = drm_atomic_helper_disable_plane,
     .destroy = drm_plane_cleanup,
+    .reset = drm_atomic_helper_plane_reset,
+    .atomic_duplicate_state = drm_atomic_helper_plane_duplicate_state,
+    .atomic_destroy_state = drm_atomic_helper_plane_destroy_state,
+};
+
+static const struct drm_plane_helper_funcs membrane_plane_helper_funcs = {
+    .atomic_update = membrane_plane_atomic_update,
+    .atomic_disable = membrane_plane_atomic_disable,
 };
 
 static const struct drm_crtc_helper_funcs membrane_crtc_helper_funcs = {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
     .enable = membrane_crtc_enable,
-    .disable = membrane_crtc_disable,
+#else
+    .atomic_enable = membrane_crtc_enable,
+#endif
+    .atomic_disable = membrane_crtc_disable,
+    .atomic_flush = membrane_crtc_atomic_flush,
 };
 
 static const struct drm_crtc_funcs membrane_crtc_funcs = {
@@ -26,12 +41,29 @@ static const struct drm_crtc_funcs membrane_crtc_funcs = {
     .cursor_move = membrane_cursor_move,
     .gamma_set = membrane_gamma_set,
     .destroy = drm_crtc_cleanup,
-    .set_config = membrane_set_config,
-    .page_flip = membrane_page_flip,
+    .set_config = drm_atomic_helper_set_config,
+    .page_flip = drm_atomic_helper_page_flip,
+    .reset = drm_atomic_helper_crtc_reset,
+    .atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
+    .atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
 };
 
 static const struct drm_encoder_funcs membrane_encoder_funcs = {
     .destroy = drm_encoder_cleanup,
+};
+
+void membrane_atomic_commit_tail(struct drm_atomic_state* state) {
+    struct drm_device* dev = state->dev;
+
+    drm_atomic_helper_commit_modeset_disables(dev, state);
+    drm_atomic_helper_commit_planes(dev, state, 0);
+    drm_atomic_helper_commit_modeset_enables(dev, state);
+    drm_atomic_helper_commit_hw_done(state);
+    drm_atomic_helper_cleanup_planes(dev, state);
+}
+
+static struct drm_mode_config_helper_funcs membrane_mode_config_helper_funcs = {
+    .atomic_commit_tail = membrane_atomic_commit_tail,
 };
 
 static int membrane_connector_get_modes(struct drm_connector* connector) {
@@ -84,10 +116,13 @@ static enum drm_connector_status membrane_connector_detect(
 }
 
 static const struct drm_connector_funcs membrane_connector_funcs = {
-    .dpms = drm_helper_connector_dpms,
+    .dpms = drm_atomic_helper_connector_dpms,
     .detect = membrane_connector_detect,
     .fill_modes = drm_helper_probe_single_connector_modes,
     .destroy = drm_connector_cleanup,
+    .reset = drm_atomic_helper_connector_reset,
+    .atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
+    .atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
 };
 
 static const uint32_t membrane_formats[] = {
@@ -103,8 +138,8 @@ static int membrane_load(struct membrane_device* mdev) {
     mdev->h = 1080;
     mdev->r = 60;
 
-    atomic_set(&mdev->next_present_id, 1);
-    atomic64_set(&mdev->pending_present, 0);
+    mdev->active_state = NULL;
+    mdev->pending_state = NULL;
 
     hrtimer_init(&mdev->vblank_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     mdev->vblank_timer.function = membrane_vblank_timer_fn;
@@ -124,8 +159,9 @@ static int membrane_load(struct membrane_device* mdev) {
     dev->mode_config.max_width = 4096;
     dev->mode_config.max_height = 4096;
     dev->mode_config.funcs = &membrane_mode_config_funcs;
+    dev->mode_config.helper_private = &membrane_mode_config_helper_funcs;
 
-    ret = drm_universal_plane_init(dev, &mdev->plane, 0, &membrane_plane_funcs, membrane_formats,
+    ret = drm_universal_plane_init(dev, &mdev->plane, 1, &membrane_plane_funcs, membrane_formats,
         ARRAY_SIZE(membrane_formats),
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
         DRM_PLANE_TYPE_PRIMARY, NULL);
@@ -136,6 +172,8 @@ static int membrane_load(struct membrane_device* mdev) {
         membrane_debug("drm_universal_plane_init failed: %d", ret);
         return ret;
     }
+
+    drm_plane_helper_add(&mdev->plane, &membrane_plane_helper_funcs);
 
     drm_crtc_helper_add(&mdev->crtc, &membrane_crtc_helper_funcs);
     ret = drm_crtc_init_with_planes(
@@ -185,28 +223,21 @@ static int membrane_load(struct membrane_device* mdev) {
         return ret;
     }
 
+    drm_mode_config_reset(dev);
+
     return 0;
 }
 
 static void membrane_postclose(struct drm_device* dev, struct drm_file* file) {
     struct membrane_device* mdev = container_of(dev, struct membrane_device, dev);
-    int i, j;
 
     if (READ_ONCE(mdev->event_consumer) == file) {
         WRITE_ONCE(mdev->event_consumer, NULL);
 
-        for (i = 0; i < MAX_PRESENTS; i++) {
-            struct membrane_present* p = &mdev->presents[i];
-            for (j = 0; j < MEMBRANE_MAX_FDS; j++) {
-                if (p->files[j]) {
-                    fput(p->files[j]);
-                    p->files[j] = NULL;
-                }
-                p->fds[j] = -1;
-            }
-            p->fds_valid = false;
-            p->id = 0;
-        }
+        hrtimer_cancel(&mdev->vblank_timer);
+
+        membrane_present_free(xchg(&mdev->active_state, NULL));
+        membrane_present_free(xchg(&mdev->pending_state, NULL));
     }
 }
 
@@ -222,7 +253,7 @@ static const struct file_operations membrane_fops = {
 };
 
 static struct drm_driver membrane_driver = {
-    .driver_features = DRIVER_MODESET | DRIVER_PRIME | DRIVER_GEM,
+    .driver_features = DRIVER_MODESET | DRIVER_PRIME | DRIVER_GEM | DRIVER_ATOMIC,
     .fops = &membrane_fops,
     .name = "membrane",
     .desc = "membrane",
@@ -236,6 +267,9 @@ static struct drm_driver membrane_driver = {
     .ioctls = membrane_ioctls,
     .num_ioctls = ARRAY_SIZE(membrane_ioctls),
     .postclose = membrane_postclose,
+    .get_vblank_counter = membrane_get_vblank_counter,
+    .enable_vblank = membrane_enable_vblank,
+    .disable_vblank = membrane_disable_vblank,
 };
 
 static int membrane_probe(struct platform_device* pdev) {

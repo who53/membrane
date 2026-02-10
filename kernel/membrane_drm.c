@@ -8,7 +8,7 @@ struct membrane_pending_event {
     struct drm_membrane_event event;
 };
 
-void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 present_id, u32 num_fds) {
+void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 num_fds) {
     struct drm_device* dev = &mdev->dev;
     struct drm_file* file = READ_ONCE(mdev->event_consumer);
     struct membrane_pending_event* p;
@@ -24,7 +24,6 @@ void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 present_id
     p->event.base.type = DRM_MEMBRANE_EVENT;
     p->event.base.length = sizeof(p->event);
     p->event.flags = flags;
-    p->event.present_id = present_id;
     p->event.num_fds = num_fds;
 
     p->base.event = &p->event.base;
@@ -39,19 +38,33 @@ void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 present_id
     drm_send_event(dev, &p->base);
 }
 
+void membrane_present_free(struct membrane_present* p) {
+    int i;
+    if (!p)
+        return;
+    for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
+        if (p->files[i])
+            fput(p->files[i]);
+    }
+    kfree(p);
+}
+
 enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer) {
     struct membrane_device* mdev = container_of(timer, struct membrane_device, vblank_timer);
-    u64 val;
-    u32 present_id, num_fds;
+    struct membrane_present *p, *old;
+    u32 num_fds = 0;
 
-    val = atomic64_xchg(&mdev->pending_present, 0);
-    if (val) {
-        present_id = val >> 32;
-        num_fds = val & 0xFFFFFFFF;
-        membrane_send_event(mdev, MEMBRANE_PRESENT_UPDATED, present_id, num_fds);
+    p = xchg(&mdev->pending_state, NULL);
+    if (p) {
+        num_fds = p->num_files;
+        old = xchg(&mdev->active_state, p);
+        membrane_present_free(old);
+        membrane_send_event(mdev, MEMBRANE_PRESENT_UPDATED, num_fds);
     }
 
-    if (atomic64_read(&mdev->pending_present)) {
+    drm_crtc_handle_vblank(&mdev->crtc);
+
+    if (READ_ONCE(mdev->pending_state)) {
         int r = READ_ONCE(mdev->r);
         if (r <= 0)
             r = 60;
@@ -60,17 +73,6 @@ enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer) {
     }
 
     return HRTIMER_NORESTART;
-}
-
-static void membrane_queue_present(struct membrane_device* mdev, u32 present_id, u32 num_fds) {
-    u64 val = ((u64)present_id << 32) | num_fds;
-    atomic64_set(&mdev->pending_present, val);
-
-    if (!hrtimer_active(&mdev->vblank_timer)) {
-        int r = READ_ONCE(mdev->r);
-        hrtimer_start(
-            &mdev->vblank_timer, ns_to_ktime(1000000000ULL / (r > 0 ? r : 60)), HRTIMER_MODE_REL);
-    }
 }
 
 int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_priv) {
@@ -160,42 +162,33 @@ err_cleanup:
     return ERR_PTR(ret);
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
 void membrane_crtc_enable(struct drm_crtc* crtc) {
+#else
+void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_atomic_state* state) {
+#endif
     struct membrane_device* mdev = container_of(crtc->dev, struct membrane_device, dev);
 
     membrane_debug("%s", __func__);
 
-    membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, 1, 0);
+    membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, 0);
 }
 
-void membrane_crtc_disable(struct drm_crtc* crtc) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+void membrane_crtc_disable(struct drm_crtc* crtc, struct drm_crtc_state* old_state) {
+#else
+void membrane_crtc_disable(struct drm_crtc* crtc, struct drm_atomic_state* state) {
+#endif
     struct membrane_device* mdev = container_of(crtc->dev, struct membrane_device, dev);
-    int i, j;
 
     membrane_debug("%s", __func__);
 
-    if (!crtc->dev->master) {
-        membrane_debug("compositor has died, resetting state");
-        for (i = 0; i < MAX_PRESENTS; i++) {
-            struct membrane_present* p = &mdev->presents[i];
-            for (j = 0; j < MEMBRANE_MAX_FDS; j++) {
-                if (p->files[j]) {
-                    fput(p->files[j]);
-                    p->files[j] = NULL;
-                }
-                p->fds[j] = -1;
-            }
-            p->fds_valid = false;
-            p->id = 0;
-        }
-        atomic64_set(&mdev->pending_present, 0);
-        return;
-    }
+    membrane_present_free(xchg(&mdev->active_state, NULL));
+    membrane_present_free(xchg(&mdev->pending_state, NULL));
 
-    atomic64_set(&mdev->pending_present, 0);
     hrtimer_cancel(&mdev->vblank_timer);
 
-    membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, 0, 0);
+    membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, 0);
 }
 
 int membrane_cursor_set2(struct drm_crtc* crtc, struct drm_file* file_priv, uint32_t handle,
@@ -214,106 +207,132 @@ int membrane_gamma_set(struct drm_crtc* crtc, u16* r, u16* g, u16* b, uint32_t s
     return 0;
 }
 
-int membrane_set_config(struct drm_mode_set* set) {
-    membrane_debug("%s", __func__);
-    if (!set->fb || set->num_connectors == 0) {
-        membrane_crtc_disable(set->crtc);
-        return 0;
-    }
-
-    membrane_crtc_enable(set->crtc);
-
-    return 0;
-}
-
-int membrane_page_flip(struct drm_crtc* crtc, struct drm_framebuffer* fb,
-    struct drm_pending_vblank_event* event, uint32_t flags) {
-    struct membrane_device* mdev = container_of(crtc->dev, struct membrane_device, dev);
-    struct membrane_framebuffer* mfb = to_membrane_framebuffer(fb);
-    struct membrane_present* p;
-    u32 id;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 13, 0)
+void membrane_plane_atomic_update(struct drm_plane* plane, struct drm_plane_state* old_state) {
+    struct drm_plane_state* new_state = plane->state;
+#else
+void membrane_plane_atomic_update(struct drm_plane* plane, struct drm_atomic_state* state) {
+    struct drm_plane_state* new_state = drm_atomic_get_new_plane_state(state, plane);
+#endif
+    struct drm_framebuffer* fb = new_state->fb;
+    struct membrane_device* mdev = container_of(plane->dev, struct membrane_device, dev);
+    struct membrane_framebuffer* mfb;
+    struct membrane_present *p, *old;
     int i;
 
     membrane_debug("%s", __func__);
 
-    id = (u32)atomic_inc_return(&mdev->next_present_id);
-    p = &mdev->presents[id % MAX_PRESENTS];
+    if (!fb)
+        return;
 
+    mfb = to_membrane_framebuffer(fb);
+
+    p = kzalloc(sizeof(*p), GFP_ATOMIC);
+    if (!p)
+        return;
+
+    p->buffer_id = fb->base.id;
+    p->num_files = 0;
     for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
-        if (p->files[i] != mfb->files[i]) {
-            if (p->files[i])
-                fput(p->files[i]);
+        if (mfb->files[i]) {
+            get_file(mfb->files[i]);
             p->files[i] = mfb->files[i];
-            if (p->files[i])
-                get_file(p->files[i]);
+            p->num_files++;
         }
     }
 
-    p->num_files = 0;
-    for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
-        if (p->files[i])
-            p->num_files++;
+    old = xchg(&mdev->pending_state, p);
+    membrane_present_free(old);
+}
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 13, 0)
+void membrane_plane_atomic_disable(struct drm_plane* plane, struct drm_plane_state* old_state) {
+#else
+void membrane_plane_atomic_disable(struct drm_plane* plane, struct drm_atomic_state* state) {
+#endif
+    membrane_debug("%s", __func__);
+}
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+void membrane_crtc_atomic_flush(struct drm_crtc* crtc, struct drm_crtc_state* old_crtc_state) {
+#else
+void membrane_crtc_atomic_flush(struct drm_crtc* crtc, struct drm_atomic_state* state) {
+#endif
+    struct membrane_device* mdev = container_of(crtc->dev, struct membrane_device, dev);
+    struct drm_pending_vblank_event* event = crtc->state->event;
+
+    membrane_debug("%s", __func__);
+
+    if (READ_ONCE(mdev->pending_state) && !hrtimer_active(&mdev->vblank_timer)) {
+        int r = READ_ONCE(mdev->r);
+        if (r <= 0)
+            r = 60;
+        hrtimer_start(&mdev->vblank_timer, ns_to_ktime(1000000000ULL / r), HRTIMER_MODE_REL);
     }
-
-    p->id = id;
-
-    membrane_queue_present(mdev, p->id, p->num_files);
 
     if (event) {
-        unsigned long flags_irq;
-        spin_lock_irqsave(&crtc->dev->event_lock, flags_irq);
+        crtc->state->event = NULL;
+        spin_lock_irq(&crtc->dev->event_lock);
         drm_crtc_send_vblank_event(crtc, event);
-        spin_unlock_irqrestore(&crtc->dev->event_lock, flags_irq);
+        spin_unlock_irq(&crtc->dev->event_lock);
     }
 
-    return 0;
+    drm_crtc_handle_vblank(crtc);
 }
 
 int membrane_get_present_fd(struct drm_device* dev, void* data, struct drm_file* file) {
     struct membrane_device* mdev = container_of(dev, struct membrane_device, dev);
     struct membrane_get_present_fd* args = data;
-    struct membrane_present* p;
+    struct membrane_present *p, *next;
     int i, count = 0;
 
     membrane_debug("%s", __func__);
 
-    p = &mdev->presents[args->present_id % MAX_PRESENTS];
-
-    if (READ_ONCE(p->id) != args->present_id)
-        return -ENOENT;
-
-    smp_rmb();
-
-    if (!p->fds_valid) {
-        for (i = 0; i < p->num_files && i < MEMBRANE_MAX_FDS; i++) {
-            struct file* f = p->files[i];
-            int fd;
-
-            if (!f) {
-                p->fds[i] = -1;
-                continue;
-            }
-
-            fd = get_unused_fd_flags(O_CLOEXEC);
-            if (fd < 0)
-                return -ENOMEM;
-
-            get_file(f);
-            fd_install(fd, f);
-            p->fds[i] = fd;
-            count++;
-        }
-        p->fds_valid = true;
-    } else {
-        for (i = 0; i < p->num_files && i < MEMBRANE_MAX_FDS; i++) {
-            if (p->fds[i] >= 0)
-                count++;
-        }
+    p = xchg(&mdev->active_state, NULL);
+    if (!p) {
+        args->buffer_id = 0;
+        args->num_fds = 0;
+        for (i = 0; i < MEMBRANE_MAX_FDS; i++)
+            args->fds[i] = -1;
+        return 0;
     }
 
-    for (i = 0; i < MEMBRANE_MAX_FDS; i++)
-        args->fds[i] = p->fds[i];
+    args->buffer_id = p->buffer_id;
+    args->num_fds = p->num_files;
+
+    for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
+        struct file* f = p->files[i];
+        int fd;
+
+        if (!f) {
+            args->fds[i] = -1;
+            continue;
+        }
+
+        fd = get_unused_fd_flags(O_CLOEXEC);
+        if (fd < 0) {
+            args->fds[i] = -1;
+            continue;
+        }
+
+        get_file(f);
+        fd_install(fd, f);
+        args->fds[i] = fd;
+        count++;
+    }
 
     args->num_fds = count;
+
+    next = cmpxchg(&mdev->active_state, NULL, p);
+    if (next != NULL) {
+        membrane_present_free(p);
+    }
+
     return 0;
 }
+
+u32 membrane_get_vblank_counter(struct drm_device* dev, unsigned int pipe) { return 0; }
+
+int membrane_enable_vblank(struct drm_device* dev, unsigned int pipe) { return 0; }
+
+void membrane_disable_vblank(struct drm_device* dev, unsigned int pipe) { }

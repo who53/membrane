@@ -20,7 +20,6 @@
 struct drm_membrane_event {
     struct drm_event base;
     __u32 flags;
-    __u32 present_id;
     __u32 num_fds;
 };
 
@@ -32,7 +31,7 @@ struct membrane_u2k_cfg {
 };
 
 struct membrane_get_present_fd {
-    __u32 present_id;
+    __u32 buffer_id;
     __u32 num_fds;
     __s32 fds[MEMBRANE_MAX_FDS];
 };
