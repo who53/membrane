@@ -116,7 +116,6 @@ static enum drm_connector_status membrane_connector_detect(
 }
 
 static const struct drm_connector_funcs membrane_connector_funcs = {
-    .dpms = drm_atomic_helper_connector_dpms,
     .detect = membrane_connector_detect,
     .fill_modes = drm_helper_probe_single_connector_modes,
     .destroy = drm_connector_cleanup,
@@ -263,7 +262,11 @@ static struct drm_driver membrane_driver = {
     .patchlevel = 0,
     .prime_fd_to_handle = membrane_prime_fd_to_handle,
     .prime_handle_to_fd = membrane_prime_handle_to_fd,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)
     .gem_free_object = membrane_gem_free_object,
+#else
+    .gem_free_object_unlocked = membrane_gem_free_object,
+#endif
     .ioctls = membrane_ioctls,
     .num_ioctls = ARRAY_SIZE(membrane_ioctls),
     .postclose = membrane_postclose,

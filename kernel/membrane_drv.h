@@ -6,15 +6,27 @@
 
 #include <linux/atomic.h>
 #include <linux/file.h>
-#include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/version.h>
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0)
+#else
+#include <drm/drm_drv.h>
+#include <drm/drm_ioctl.h>
+#include <drm/drm_vblank.h>
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0)
+#else
+#include <drm/drm_probe_helper.h>
+#endif
 
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_crtc_helper.h>
 #include <drm/drm_encoder.h>
+#include <drm/drm_fourcc.h>
 #include <drm/drm_gem.h>
 #include <drm/drm_plane_helper.h>
 
