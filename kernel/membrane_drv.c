@@ -256,7 +256,11 @@ static const struct file_operations membrane_fops = {
 };
 
 static struct drm_driver membrane_driver = {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
     .driver_features = DRIVER_MODESET | DRIVER_PRIME | DRIVER_GEM | DRIVER_ATOMIC,
+#else
+    .driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_ATOMIC,
+#endif
     .fops = &membrane_fops,
     .name = "membrane",
     .desc = "membrane",
