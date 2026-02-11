@@ -285,7 +285,7 @@ static struct drm_driver membrane_driver = {
 
 static int membrane_probe(struct platform_device* pdev) {
     struct membrane_device* mdev;
-    struct drm_device* drm;
+    struct drm_device* dev;
     int ret;
 
     membrane_debug("%s", __func__);
@@ -296,17 +296,17 @@ static int membrane_probe(struct platform_device* pdev) {
         return -ENOMEM;
     }
 
-    drm = &mdev->dev;
+    dev = &mdev->dev;
 
     membrane_debug("calling drm_dev_init");
-    ret = drm_dev_init(drm, &membrane_driver, &pdev->dev);
+    ret = drm_dev_init(dev, &membrane_driver, &pdev->dev);
     if (ret) {
         membrane_debug("drm_dev_init failed: %d", ret);
         return ret;
     }
     membrane_debug("called drm_dev_init");
 
-    platform_set_drvdata(pdev, drm);
+    platform_set_drvdata(pdev, dev);
 
     ret = membrane_load(mdev);
     if (ret) {
@@ -314,7 +314,7 @@ static int membrane_probe(struct platform_device* pdev) {
         goto err_free;
     }
 
-    ret = drm_dev_register(drm, 0);
+    ret = drm_dev_register(dev, 0);
     if (ret) {
         membrane_debug("drm_dev_register failed: %d", ret);
         goto err_free;
@@ -324,7 +324,7 @@ static int membrane_probe(struct platform_device* pdev) {
     return 0;
 
 err_free:
-    drm_dev_put(drm);
+    drm_dev_put(dev);
     membrane_debug("probe failed");
     return ret;
 }
