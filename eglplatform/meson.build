@@ -17,6 +17,8 @@ linux_dmabuf_xml = wl_proto_dir / 'stable/linux-dmabuf/linux-dmabuf-v1.xml'
 protos_src = wayland_scanner_code.process(linux_dmabuf_xml)
 protos_headers = wayland_scanner_client.process(linux_dmabuf_xml)
 
+egl_dep = dependency('egl')
+
 shared_library(
   'eglplatform_membrane',
   ['eglplatform_membrane.cpp', protos_src, protos_headers],
@@ -28,7 +30,7 @@ shared_library(
     wayland_egl_dep,
     wayland_client_dep,
     libdrm_dep,
-    libsync_dep,
+    egl_dep
   ],
   install: true,
   install_dir: join_paths(get_option('libdir'), 'libhybris'),

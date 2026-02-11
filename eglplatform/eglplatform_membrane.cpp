@@ -35,6 +35,9 @@
 
 #include <hardware/gralloc.h>
 
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+
 #include <algorithm>
 #include <utility>
 #include <vector>
@@ -42,7 +45,6 @@
 
 extern "C" {
 #include <eglplatformcommon.h>
-#include <sync/sync.h>
 void hybris_gralloc_initialize(int framebuffer);
 int hybris_gralloc_allocate(
     int width, int height, int format, int usage, buffer_handle_t* handle, uint32_t* stride);
@@ -51,6 +53,19 @@ int hybris_gralloc_import_buffer(buffer_handle_t raw_handle, buffer_handle_t* ou
 };
 
 #include <log.h>
+
+static PFNEGLCREATESYNCKHRPROC eglCreateSyncKHR_func = NULL;
+static PFNEGLDESTROYSYNCKHRPROC eglDestroySyncKHR_func = NULL;
+static PFNEGLCLIENTWAITSYNCKHRPROC eglClientWaitSyncKHR_func = NULL;
+
+static void init_egl_sync_funcs() {
+    if (eglCreateSyncKHR_func)
+        return;
+    eglCreateSyncKHR_func = (PFNEGLCREATESYNCKHRPROC)eglGetProcAddress("eglCreateSyncKHR");
+    eglDestroySyncKHR_func = (PFNEGLDESTROYSYNCKHRPROC)eglGetProcAddress("eglDestroySyncKHR");
+    eglClientWaitSyncKHR_func
+        = (PFNEGLCLIENTWAITSYNCKHRPROC)eglGetProcAddress("eglClientWaitSyncKHR");
+}
 
 class MembraneNativeWindowBuffer : public BaseNativeWindowBuffer {
 public:
@@ -212,7 +227,17 @@ public:
         MembraneNativeWindowBuffer* mnb = (MembraneNativeWindowBuffer*)buffer;
 
         if (fenceFd >= 0) {
-            sync_wait(fenceFd, -1);
+            if (eglCreateSyncKHR_func && eglClientWaitSyncKHR_func && eglDestroySyncKHR_func) {
+                EGLDisplay dpy = eglGetCurrentDisplay();
+                if (dpy != EGL_NO_DISPLAY) {
+                    EGLSyncKHR sync = eglCreateSyncKHR_func(dpy, EGL_SYNC_FENCE_KHR, NULL);
+                    if (sync != EGL_NO_SYNC_KHR) {
+                        eglClientWaitSyncKHR_func(
+                            dpy, sync, EGL_SYNC_FLUSH_COMMANDS_BIT_KHR, EGL_FOREVER_KHR);
+                        eglDestroySyncKHR_func(dpy, sync);
+                    }
+                }
+            }
             close(fenceFd);
         }
 
@@ -445,6 +470,7 @@ static const struct wl_registry_listener registry_listener
 extern "C" void membranews_init_module(struct ws_egl_interface* egl_iface) {
     hybris_gralloc_initialize(1);
     eglplatformcommon_init(egl_iface);
+    init_egl_sync_funcs();
 }
 
 extern "C" _EGLDisplay* membranews_GetDisplay(EGLNativeDisplayType display) {
