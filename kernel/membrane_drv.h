@@ -94,7 +94,12 @@ void membrane_crtc_atomic_flush(struct drm_crtc* crtc, struct drm_atomic_state* 
 int membrane_cursor_set2(struct drm_crtc* crtc, struct drm_file* file_priv, uint32_t handle,
     uint32_t width, uint32_t height, int32_t hot_x, int32_t hot_y);
 int membrane_cursor_move(struct drm_crtc* crtc, int x, int y);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
 int membrane_gamma_set(struct drm_crtc* crtc, u16* r, u16* g, u16* b, uint32_t size);
+#else
+int membrane_gamma_set(struct drm_crtc* crtc, u16* r, u16* g, u16* b, uint32_t size,
+    struct drm_modeset_acquire_ctx *ctx);
+#endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 13, 0)
 void membrane_plane_atomic_update(struct drm_plane* plane, struct drm_plane_state* old_state);
