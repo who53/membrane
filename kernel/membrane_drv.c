@@ -145,9 +145,6 @@ static int membrane_load(struct membrane_device* mdev) {
     init_waitqueue_head(&mdev->event_wait);
     atomic_set(&mdev->stopping, 0);
 
-    hrtimer_init(&mdev->vblank_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-    mdev->vblank_timer.function = membrane_vblank_timer_fn;
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
     drm_mode_config_init(dev);
 #else
@@ -239,8 +236,6 @@ static void membrane_postclose(struct drm_device* dev, struct drm_file* file) {
         WRITE_ONCE(mdev->event_consumer, NULL);
         atomic_set(&mdev->stopping, 1);
         wake_up_all(&mdev->event_wait);
-
-        hrtimer_cancel(&mdev->vblank_timer);
 
         membrane_present_free(xchg(&mdev->active_state, NULL));
         membrane_present_free(xchg(&mdev->pending_state, NULL));

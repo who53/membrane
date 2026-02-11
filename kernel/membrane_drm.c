@@ -49,10 +49,12 @@ void membrane_present_free(struct membrane_present* p) {
     kfree(p);
 }
 
-enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer) {
-    struct membrane_device* mdev = container_of(timer, struct membrane_device, vblank_timer);
+int membrane_notify_vsync(struct drm_device* dev, void* data, struct drm_file* file_priv) {
+    struct membrane_device* mdev = container_of(dev, struct membrane_device, dev);
     struct membrane_present *p, *old;
     u32 num_fds = 0;
+
+    membrane_debug("%s", __func__);
 
     p = xchg(&mdev->pending_state, NULL);
     if (p) {
@@ -64,15 +66,7 @@ enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer) {
 
     drm_crtc_handle_vblank(&mdev->crtc);
 
-    if (READ_ONCE(mdev->pending_state)) {
-        int r = READ_ONCE(mdev->r);
-        if (r <= 0)
-            r = 60;
-        hrtimer_forward_now(timer, ns_to_ktime(1000000000ULL / r));
-        return HRTIMER_RESTART;
-    }
-
-    return HRTIMER_NORESTART;
+    return 0;
 }
 
 int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_priv) {
@@ -188,8 +182,6 @@ void membrane_crtc_disable(struct drm_crtc* crtc, struct drm_atomic_state* state
     membrane_present_free(xchg(&mdev->active_state, NULL));
     membrane_present_free(xchg(&mdev->pending_state, NULL));
 
-    hrtimer_cancel(&mdev->vblank_timer);
-
     if (crtc->dev->master) {
         membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, MEMBRANE_DPMS_OFF);
     } else {
@@ -264,17 +256,9 @@ void membrane_crtc_atomic_flush(struct drm_crtc* crtc, struct drm_crtc_state* ol
 #else
 void membrane_crtc_atomic_flush(struct drm_crtc* crtc, struct drm_atomic_state* state) {
 #endif
-    struct membrane_device* mdev = container_of(crtc->dev, struct membrane_device, dev);
     struct drm_pending_vblank_event* event = crtc->state->event;
 
     membrane_debug("%s", __func__);
-
-    if (READ_ONCE(mdev->pending_state) && !hrtimer_active(&mdev->vblank_timer)) {
-        int r = READ_ONCE(mdev->r);
-        if (r <= 0)
-            r = 60;
-        hrtimer_start(&mdev->vblank_timer, ns_to_ktime(1000000000ULL / r), HRTIMER_MODE_REL);
-    }
 
     if (event) {
         crtc->state->event = NULL;

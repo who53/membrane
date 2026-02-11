@@ -59,8 +59,6 @@ struct membrane_device {
     struct membrane_present* active_state;
     struct membrane_present* pending_state;
 
-    struct hrtimer vblank_timer;
-
     int w, h, r;
 
     atomic_t event_flags;
@@ -74,7 +72,7 @@ void membrane_present_free(struct membrane_present* p);
 int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_priv);
 int membrane_signal(struct drm_device* dev, void* data, struct drm_file* file_priv);
 void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 num_fds);
-enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer);
+int membrane_notify_vsync(struct drm_device* dev, void* data, struct drm_file* file_priv);
 
 static inline struct membrane_framebuffer* to_membrane_framebuffer(struct drm_framebuffer* fb) {
     return container_of(fb, struct membrane_framebuffer, base);
@@ -126,6 +124,7 @@ static const struct drm_ioctl_desc membrane_ioctls[] = {
         MEMBRANE_GET_PRESENT_FD, membrane_get_present_fd, DRM_UNLOCKED | DRM_RENDER_ALLOW),
     DRM_IOCTL_DEF_DRV(MEMBRANE_CONFIG, membrane_config, DRM_UNLOCKED),
     DRM_IOCTL_DEF_DRV(MEMBRANE_SIGNAL, membrane_signal, DRM_UNLOCKED),
+    DRM_IOCTL_DEF_DRV(MEMBRANE_NOTIFY_VSYNC, membrane_notify_vsync, DRM_UNLOCKED),
 };
 
 #define membrane_debug(fmt, ...) pr_debug("membrane: %s: " fmt "\n", __func__, ##__VA_ARGS__)
