@@ -162,8 +162,10 @@ err_cleanup:
     return ERR_PTR(ret);
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 void membrane_crtc_enable(struct drm_crtc* crtc) {
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_crtc_state* state) {
 #else
 void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_atomic_state* state) {
 #endif

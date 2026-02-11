@@ -81,12 +81,18 @@ static inline struct membrane_framebuffer* to_membrane_framebuffer(struct drm_fr
 struct drm_framebuffer* membrane_fb_create(
     struct drm_device* dev, struct drm_file* file_priv, const struct drm_mode_fb_cmd2* mode_cmd);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 void membrane_crtc_enable(struct drm_crtc* crtc);
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_crtc_state* state);
+#else
+void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_atomic_state* state);
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
 void membrane_crtc_disable(struct drm_crtc* crtc, struct drm_crtc_state* old_state);
 void membrane_crtc_atomic_flush(struct drm_crtc* crtc, struct drm_crtc_state* old_crtc_state);
 #else
-void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_atomic_state* state);
 void membrane_crtc_disable(struct drm_crtc* crtc, struct drm_atomic_state* state);
 void membrane_crtc_atomic_flush(struct drm_crtc* crtc, struct drm_atomic_state* state);
 #endif

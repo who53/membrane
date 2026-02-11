@@ -27,7 +27,7 @@ static const struct drm_plane_helper_funcs membrane_plane_helper_funcs = {
 };
 
 static const struct drm_crtc_helper_funcs membrane_crtc_helper_funcs = {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
     .enable = membrane_crtc_enable,
 #else
     .atomic_enable = membrane_crtc_enable,
