@@ -190,7 +190,11 @@ void membrane_crtc_disable(struct drm_crtc* crtc, struct drm_atomic_state* state
 
     hrtimer_cancel(&mdev->vblank_timer);
 
-    membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, MEMBRANE_DPMS_OFF);
+    if (crtc->dev->master) {
+        membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, MEMBRANE_DPMS_OFF);
+    } else {
+        membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, MEMBRANE_DPMS_NO_COMP);
+    }
 }
 
 int membrane_cursor_set2(struct drm_crtc* crtc, struct drm_file* file_priv, uint32_t handle,

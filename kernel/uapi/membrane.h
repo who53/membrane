@@ -15,6 +15,7 @@
 
 #define MEMBRANE_DPMS_OFF 0
 #define MEMBRANE_DPMS_ON 1
+#define MEMBRANE_DPMS_NO_COMP 2
 
 #define MEMBRANE_MAX_FDS 4
 
