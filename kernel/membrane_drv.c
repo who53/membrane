@@ -183,7 +183,7 @@ static int membrane_load(struct membrane_device* mdev) {
     }
 
     ret = drm_encoder_init(
-        dev, &mdev->encoder, &membrane_encoder_funcs, DRM_MODE_ENCODER_VIRTUAL, NULL);
+        dev, &mdev->encoder, &membrane_encoder_funcs, DRM_MODE_ENCODER_DSI, NULL);
     if (ret) {
         membrane_debug("drm_encoder_init failed: %d", ret);
         return ret;
@@ -192,7 +192,7 @@ static int membrane_load(struct membrane_device* mdev) {
     mdev->encoder.possible_crtcs = 1 << drm_crtc_index(&mdev->crtc);
 
     ret = drm_connector_init(
-        dev, &mdev->connector, &membrane_connector_funcs, DRM_MODE_CONNECTOR_VIRTUAL);
+        dev, &mdev->connector, &membrane_connector_funcs, DRM_MODE_CONNECTOR_DSI);
     if (ret) {
         membrane_debug("drm_connector_init failed: %d", ret);
         return ret;
