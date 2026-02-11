@@ -123,7 +123,11 @@ struct drm_framebuffer* membrane_fb_create(
         return ERR_PTR(-ENOMEM);
     }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)
     drm_helper_mode_fill_fb_struct(&mfb->base, mode_cmd);
+#else
+    drm_helper_mode_fill_fb_struct(dev, &mfb->base, mode_cmd);
+#endif
 
     ret = drm_framebuffer_init(dev, &mfb->base, &membrane_fb_funcs);
     if (ret) {
@@ -158,8 +162,10 @@ err_cleanup:
     return ERR_PTR(ret);
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 14, 0)
 void membrane_crtc_enable(struct drm_crtc* crtc) {
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_crtc_state* state) {
 #else
 void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_atomic_state* state) {
 #endif
@@ -200,7 +206,12 @@ int membrane_cursor_move(struct drm_crtc* crtc, int x, int y) {
     return 0;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
 int membrane_gamma_set(struct drm_crtc* crtc, u16* r, u16* g, u16* b, uint32_t size) {
+#else
+int membrane_gamma_set(struct drm_crtc* crtc, u16* r, u16* g, u16* b, uint32_t size,
+    struct drm_modeset_acquire_ctx *ctx) {
+#endif
     membrane_debug("%s", __func__);
     return 0;
 }
