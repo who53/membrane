@@ -223,39 +223,27 @@ static void handle_dpms_event(hwc2_compat_display_t* display, bool dpms_on) {
 }
 
 static void membrane_event_loop(int mfd, hwc2_compat_display_t* display, HWC2DisplayConfig* cfg) {
-    char buf[256];
+    struct membrane_event ev;
 
     for (;;) {
-        ssize_t len = read(mfd, buf, sizeof(buf));
-        if (len < 0) {
+        if (ioctl(mfd, DRM_IOCTL_MEMBRANE_SIGNAL, &ev) < 0) {
             if (errno == EINTR)
                 continue;
-            membrane_err("drm read: %s", strerror(errno));
+            membrane_err("ioctl DRM_IOCTL_MEMBRANE_SIGNAL: %s", strerror(errno));
             continue;
         }
 
-        ssize_t off = 0;
-        while (off < len) {
-            struct drm_event* e = (struct drm_event*)(buf + off);
+        if (ev.flags & MEMBRANE_DPMS_UPDATED) {
+            handle_dpms_event(display, ev.value == MEMBRANE_DPMS_ON);
+        }
 
-            if (e->type == DRM_MEMBRANE_EVENT) {
-                struct drm_membrane_event* me = (struct drm_membrane_event*)e;
+        if (ev.flags & MEMBRANE_PRESENT_UPDATED) {
+            struct ANativeWindowBuffer* anw = membrane_handle_present(mfd);
 
-                if (me->flags & MEMBRANE_DPMS_UPDATED) {
-                    handle_dpms_event(display, me->dpms_state == MEMBRANE_DPMS_ON);
-                }
-
-                if (me->flags & MEMBRANE_PRESENT_UPDATED) {
-                    struct ANativeWindowBuffer* anw = membrane_handle_present(mfd);
-
-                    if (anw) {
-                        do_present_block(display, anw);
-                        anw->common.decRef(&anw->common);
-                    }
-                }
+            if (anw) {
+                do_present_block(display, anw);
+                anw->common.decRef(&anw->common);
             }
-
-            off += e->length;
         }
     }
 }
