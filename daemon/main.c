@@ -242,7 +242,7 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t* display, HWC2Dis
                 struct drm_membrane_event* me = (struct drm_membrane_event*)e;
 
                 if (me->flags & MEMBRANE_DPMS_UPDATED) {
-                    handle_dpms_event(display, (me->flags & MEMBRANE_PRESENT_UPDATED) == 0);
+                    handle_dpms_event(display, me->dpms_state == MEMBRANE_DPMS_ON);
                 }
 
                 if (me->flags & MEMBRANE_PRESENT_UPDATED) {
