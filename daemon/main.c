@@ -99,7 +99,7 @@ static buffer_handle_t import_buffer_from_fds(int* fds, int num_fds) {
     if (fstat(meta_fd, &sb) < 0 || sb.st_size <= 0)
         return NULL;
 
-    int ints[64];
+    int ints[128];
     if (sb.st_size > (off_t)sizeof(ints)) {
         membrane_err("metadata too large (%zd bytes)", (size_t)sb.st_size);
         return NULL;
