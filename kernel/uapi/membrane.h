@@ -13,6 +13,9 @@
 #define MEMBRANE_PRESENT_UPDATED (1 << 0)
 #define MEMBRANE_DPMS_UPDATED (1 << 1)
 
+#define MEMBRANE_DPMS_OFF 0
+#define MEMBRANE_DPMS_ON 1
+
 #define MEMBRANE_MAX_FDS 4
 
 #define DRM_MEMBRANE_EVENT 0x80000001
@@ -20,7 +23,10 @@
 struct drm_membrane_event {
     struct drm_event base;
     __u32 flags;
-    __u32 num_fds;
+    union {
+        __u32 num_fds;
+        __u32 dpms_state;
+    };
 };
 
 struct membrane_u2k_cfg {

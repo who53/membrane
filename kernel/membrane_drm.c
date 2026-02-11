@@ -8,7 +8,7 @@ struct membrane_pending_event {
     struct drm_membrane_event event;
 };
 
-void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 num_fds) {
+void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 value) {
     struct drm_device* dev = &mdev->dev;
     struct drm_file* file = READ_ONCE(mdev->event_consumer);
     struct membrane_pending_event* p;
@@ -24,7 +24,10 @@ void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 num_fds) {
     p->event.base.type = DRM_MEMBRANE_EVENT;
     p->event.base.length = sizeof(p->event);
     p->event.flags = flags;
-    p->event.num_fds = num_fds;
+    if (flags & MEMBRANE_DPMS_UPDATED)
+        p->event.dpms_state = value;
+    else
+        p->event.num_fds = value;
 
     p->base.event = &p->event.base;
     p->base.file_priv = file;
@@ -171,7 +174,7 @@ void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_atomic_state* state)
 
     membrane_debug("%s", __func__);
 
-    membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, 0);
+    membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, MEMBRANE_DPMS_ON);
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
@@ -188,7 +191,7 @@ void membrane_crtc_disable(struct drm_crtc* crtc, struct drm_atomic_state* state
 
     hrtimer_cancel(&mdev->vblank_timer);
 
-    membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, 0);
+    membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, MEMBRANE_DPMS_OFF);
 }
 
 int membrane_cursor_set2(struct drm_crtc* crtc, struct drm_file* file_priv, uint32_t handle,
