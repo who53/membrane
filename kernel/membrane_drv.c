@@ -290,14 +290,23 @@ static int membrane_probe(struct platform_device* pdev) {
 
     membrane_debug("%s", __func__);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
     mdev = devm_kzalloc(&pdev->dev, sizeof(*mdev), GFP_KERNEL);
     if (!mdev) {
         membrane_debug("devm_kzalloc failed");
         return -ENOMEM;
     }
+#else
+    mdev = devm_drm_dev_alloc(&pdev->dev, &membrane_driver, typeof(*mdev), dev);
+    if (IS_ERR(mdev)) {
+        membrane_debug("devm_drm_dev_alloc failed");
+        return PTR_ERR(mdev);
+    }
+#endif
 
     dev = &mdev->dev;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
     membrane_debug("calling drm_dev_init");
     ret = drm_dev_init(dev, &membrane_driver, &pdev->dev);
     if (ret) {
@@ -305,6 +314,7 @@ static int membrane_probe(struct platform_device* pdev) {
         return ret;
     }
     membrane_debug("called drm_dev_init");
+#endif
 
     platform_set_drvdata(pdev, dev);
 
@@ -324,7 +334,9 @@ static int membrane_probe(struct platform_device* pdev) {
     return 0;
 
 err_free:
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
     drm_dev_put(dev);
+#endif
     membrane_debug("probe failed");
     return ret;
 }
@@ -334,7 +346,9 @@ static int membrane_remove(struct platform_device* pdev) {
     membrane_debug("%s", __func__);
 
     drm_dev_unregister(drm);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
     drm_dev_put(drm);
+#endif
 
     return 0;
 }
