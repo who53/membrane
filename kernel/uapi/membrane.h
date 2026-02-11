@@ -18,15 +18,9 @@
 
 #define MEMBRANE_MAX_FDS 4
 
-#define DRM_MEMBRANE_EVENT 0x80000001
-
-struct drm_membrane_event {
-    struct drm_event base;
+struct membrane_event {
     __u32 flags;
-    union {
-        __u32 num_fds;
-        __u32 dpms_state;
-    };
+    __u32 value;
 };
 
 struct membrane_u2k_cfg {
@@ -44,11 +38,15 @@ struct membrane_get_present_fd {
 
 #define DRM_MEMBRANE_GET_PRESENT_FD 0x23
 #define DRM_MEMBRANE_CONFIG 0x24
+#define DRM_MEMBRANE_SIGNAL 0x25
 
 #define DRM_IOCTL_MEMBRANE_GET_PRESENT_FD                                                          \
     DRM_IOWR(DRM_COMMAND_BASE + DRM_MEMBRANE_GET_PRESENT_FD, struct membrane_get_present_fd)
 
 #define DRM_IOCTL_MEMBRANE_CONFIG                                                                  \
     DRM_IOW(DRM_COMMAND_BASE + DRM_MEMBRANE_CONFIG, struct membrane_u2k_cfg)
+
+#define DRM_IOCTL_MEMBRANE_SIGNAL                                                                  \
+    DRM_IOWR(DRM_COMMAND_BASE + DRM_MEMBRANE_SIGNAL, struct membrane_event)
 
 #endif

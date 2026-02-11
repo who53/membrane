@@ -6,6 +6,7 @@
 
 #include <linux/atomic.h>
 #include <linux/file.h>
+#include <linux/llist.h>
 #include <linux/spinlock.h>
 #include <linux/version.h>
 
@@ -61,11 +62,17 @@ struct membrane_device {
     struct hrtimer vblank_timer;
 
     int w, h, r;
+
+    atomic_t event_flags;
+    atomic_t dpms_state;
+    wait_queue_head_t event_wait;
+    atomic_t stopping;
 };
 
 void membrane_present_free(struct membrane_present* p);
 
 int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_priv);
+int membrane_signal(struct drm_device* dev, void* data, struct drm_file* file_priv);
 void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 num_fds);
 enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer);
 
@@ -118,6 +125,7 @@ static const struct drm_ioctl_desc membrane_ioctls[] = {
     DRM_IOCTL_DEF_DRV(
         MEMBRANE_GET_PRESENT_FD, membrane_get_present_fd, DRM_UNLOCKED | DRM_RENDER_ALLOW),
     DRM_IOCTL_DEF_DRV(MEMBRANE_CONFIG, membrane_config, DRM_UNLOCKED),
+    DRM_IOCTL_DEF_DRV(MEMBRANE_SIGNAL, membrane_signal, DRM_UNLOCKED),
 };
 
 #define membrane_debug(fmt, ...) pr_debug("membrane: %s: " fmt "\n", __func__, ##__VA_ARGS__)

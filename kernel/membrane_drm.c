@@ -3,42 +3,39 @@
 
 #include "membrane_drv.h"
 
-struct membrane_pending_event {
-    struct drm_pending_event base;
-    struct drm_membrane_event event;
-};
-
 void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 value) {
-    struct drm_device* dev = &mdev->dev;
-    struct drm_file* file = READ_ONCE(mdev->event_consumer);
-    struct membrane_pending_event* p;
-    int ret;
-
-    if (!file)
+    if (atomic_read(&mdev->stopping))
         return;
 
-    p = kzalloc(sizeof(*p), GFP_ATOMIC);
-    if (!p)
-        return;
-
-    p->event.base.type = DRM_MEMBRANE_EVENT;
-    p->event.base.length = sizeof(p->event);
-    p->event.flags = flags;
     if (flags & MEMBRANE_DPMS_UPDATED)
-        p->event.dpms_state = value;
+        atomic_set(&mdev->dpms_state, value);
+
+    atomic_or(flags, &mdev->event_flags);
+    wake_up_interruptible(&mdev->event_wait);
+}
+
+int membrane_signal(struct drm_device* dev, void* data, struct drm_file* file_priv) {
+    struct membrane_device* mdev = container_of(dev, struct membrane_device, dev);
+    struct membrane_event* arg = data;
+    int ret, flags;
+
+    ret = wait_event_interruptible(
+        mdev->event_wait, atomic_read(&mdev->event_flags) != 0 || atomic_read(&mdev->stopping));
+    if (ret)
+        return ret;
+
+    if (atomic_read(&mdev->stopping))
+        return -ENODEV;
+
+    flags = atomic_xchg(&mdev->event_flags, 0);
+    arg->flags = flags;
+
+    if (flags & MEMBRANE_DPMS_UPDATED)
+        arg->value = atomic_read(&mdev->dpms_state);
     else
-        p->event.num_fds = value;
+        arg->value = 0;
 
-    p->base.event = &p->event.base;
-    p->base.file_priv = file;
-
-    ret = drm_event_reserve_init(dev, file, &p->base, &p->event.base);
-    if (ret) {
-        kfree(p);
-        return;
-    }
-
-    drm_send_event(dev, &p->base);
+    return 0;
 }
 
 void membrane_present_free(struct membrane_present* p) {
@@ -83,8 +80,10 @@ int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_pr
     struct membrane_u2k_cfg* cfg = data;
     bool mode_changed = false;
 
-    if (!READ_ONCE(mdev->event_consumer))
+    if (!READ_ONCE(mdev->event_consumer)) {
         WRITE_ONCE(mdev->event_consumer, file_priv);
+        atomic_set(&mdev->stopping, 0);
+    }
 
     if (READ_ONCE(mdev->w) != cfg->w || READ_ONCE(mdev->h) != cfg->h
         || READ_ONCE(mdev->r) != cfg->r) {
