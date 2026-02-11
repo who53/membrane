@@ -45,6 +45,16 @@ static struct {
     struct ANativeWindowBuffer* anw;
 } g_buffer_cache[BUFFER_CACHE_SIZE];
 
+static void clear_buffer_cache(void) {
+    for (int i = 0; i < BUFFER_CACHE_SIZE; i++) {
+        if (g_buffer_cache[i].anw) {
+            g_buffer_cache[i].anw->common.decRef(&g_buffer_cache[i].anw->common);
+            g_buffer_cache[i].anw = NULL;
+        }
+        g_buffer_cache[i].id = 0;
+    }
+}
+
 static uint32_t get_stride(int width, int height, int format, int usage) {
     buffer_handle_t handle = NULL;
     uint32_t stride = 0;
@@ -220,8 +230,14 @@ static struct ANativeWindowBuffer* membrane_handle_present(int mfd) {
     return anw;
 }
 
-static void handle_dpms_event(hwc2_compat_display_t* display, bool dpms_on) {
-    g_display_enabled = dpms_on;
+static void handle_dpms_event(hwc2_compat_display_t* display, uint32_t value) {
+    if (value == MEMBRANE_DPMS_NO_COMP) {
+        clear_buffer_cache();
+        membrane_debug("DPMS NO_COMP (cache cleared)");
+        return;
+    }
+
+    g_display_enabled = (value == MEMBRANE_DPMS_ON);
 
     const bool change_backlight = g_has_backlight && g_droid_leds;
 
@@ -263,7 +279,7 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t* display, HWC2Dis
         }
 
         if (ev.flags & MEMBRANE_DPMS_UPDATED) {
-            handle_dpms_event(display, ev.value == MEMBRANE_DPMS_ON);
+            handle_dpms_event(display, ev.value);
         }
 
         if (ev.flags & MEMBRANE_PRESENT_UPDATED) {
