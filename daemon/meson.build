@@ -1,3 +1,6 @@
+libdroid_dep = dependency('libdroid-0')
+libhwc2_dep = dependency('libhwc2')
+
 executable(
   'membrane',
   [

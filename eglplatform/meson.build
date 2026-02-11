@@ -1,3 +1,8 @@
+egl_dep = dependency('egl')
+wayland_client_dep = dependency('wayland-client')
+wayland_egl_dep = dependency('wayland-egl')
+wayland_protos = dependency('wayland-protocols')
+
 wayland_scanner = find_program('wayland-scanner')
 wl_proto_dir = wayland_protos.get_variable(pkgconfig: 'pkgdatadir')
 
@@ -16,8 +21,6 @@ wayland_scanner_client = generator(
 linux_dmabuf_xml = wl_proto_dir / 'stable/linux-dmabuf/linux-dmabuf-v1.xml'
 protos_src = wayland_scanner_code.process(linux_dmabuf_xml)
 protos_headers = wayland_scanner_client.process(linux_dmabuf_xml)
-
-egl_dep = dependency('egl')
 
 shared_library(
   'eglplatform_membrane',

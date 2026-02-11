@@ -16,16 +16,9 @@ incdir = include_directories('include')
 
 pkg = import('pkgconfig')
 
-libhwc2_dep = dependency('libhwc2')
 hybris_egl_platform_dep = dependency('hybris-egl-platform')
-libgralloc_dep = dependency('libgralloc')
 libdrm_dep = dependency('libdrm')
-libdroid_dep = dependency('libdroid-0')
-gbm_dep = dependency('gbm')
-wayland_egl_dep = dependency('wayland-egl')
-wayland_client_dep = dependency('wayland-client')
-wayland_protos = dependency('wayland-protocols')
-libsync_dep = dependency('libsync')
+libgralloc_dep = dependency('libgralloc')
 
 install_data(
   'data/zz-membrane.sh',

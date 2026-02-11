@@ -1,3 +1,5 @@
+gbm_dep = dependency('gbm')
+
 shared_library(
   'membrane_gbm',
   'membrane.c',
