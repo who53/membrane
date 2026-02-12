@@ -210,7 +210,7 @@ int membrane_cursor_move(struct drm_crtc* crtc, int x, int y) {
 int membrane_gamma_set(struct drm_crtc* crtc, u16* r, u16* g, u16* b, uint32_t size) {
 #else
 int membrane_gamma_set(struct drm_crtc* crtc, u16* r, u16* g, u16* b, uint32_t size,
-    struct drm_modeset_acquire_ctx *ctx) {
+    struct drm_modeset_acquire_ctx* ctx) {
 #endif
     membrane_debug("%s", __func__);
     return 0;
