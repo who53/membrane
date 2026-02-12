@@ -167,7 +167,11 @@ public:
         , m_bufferCount(3)
         , m_allocateBuffers(true)
         , m_damage_rects(NULL)
-        , m_damage_n_rects(0) {
+        , m_damage_n_rects(0)
+        , m_frame_callback(NULL)
+        , m_queuedBuffer(NULL)
+        , m_attached_height(0)
+        , m_swap_interval(1) {
         m_wl_surface = m_wl_window->surface;
 
         m_wl_window->driver_private = this;
@@ -180,6 +184,9 @@ public:
     }
 
     virtual ~MembraneNativeWindow() {
+        if (m_frame_callback)
+            wl_callback_destroy(m_frame_callback);
+
         destroyBuffers();
         if (m_wl_window) {
             m_wl_window->driver_private = NULL;
@@ -188,7 +195,7 @@ public:
     }
 
     virtual int setSwapInterval(int interval) override {
-        (void)interval;
+        m_swap_interval = interval;
         return 0;
     }
     virtual unsigned int type() const override { return NATIVE_WINDOW_SURFACE; }
@@ -248,28 +255,7 @@ public:
         if (mnb->getWlBuffer()) {
             membrane_assert(mnb->getBusy() == 1);
             mnb->setBusy(2);
-
-            wl_surface_attach(m_wl_surface, mnb->getWlBuffer(), 0, 0);
-
-            if (wl_proxy_get_version((struct wl_proxy*)m_wl_surface)
-                >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION) {
-                if (m_damage_n_rects > 0 && m_damage_rects) {
-                    int h = m_wl_window->height;
-                    for (int i = 0; i < m_damage_n_rects; i++) {
-                        const int* rect = &m_damage_rects[i * 4];
-                        wl_surface_damage_buffer(
-                            m_wl_surface, rect[0], h - rect[1] - rect[3], rect[2], rect[3]);
-                    }
-                } else {
-                    wl_surface_damage_buffer(m_wl_surface, 0, 0, INT32_MAX, INT32_MAX);
-                }
-            } else {
-                wl_surface_damage(m_wl_surface, 0, 0, INT32_MAX, INT32_MAX);
-            }
-            m_damage_rects = NULL;
-            m_damage_n_rects = 0;
-
-            wl_surface_commit(m_wl_surface);
+            m_queuedBuffer = mnb;
         } else {
             membrane_err("Failed to create wl_buffer for queue");
             mnb->setBusy(0);
@@ -344,9 +330,61 @@ public:
         for (int i = 0; i < m_bufferCount; i++) {
             if (m_buffers[i].getWlBuffer() == wl_buf) {
                 m_buffers[i].setBusy(0);
+                if (m_queuedBuffer == &m_buffers[i])
+                    m_queuedBuffer = NULL;
                 break;
             }
         }
+    }
+
+    void finishSwap() {
+        if (m_frame_callback && m_swap_interval > 0) {
+            while (m_frame_callback) {
+                if (wl_display_dispatch(m_wl_display) == -1) {
+                    break;
+                }
+            }
+        }
+
+        if (m_swap_interval > 0) {
+            m_frame_callback = wl_surface_frame(m_wl_surface);
+            wl_callback_add_listener(m_frame_callback, &s_frame_listener, this);
+        }
+
+        MembraneNativeWindowBuffer* mnb = m_queuedBuffer;
+        m_queuedBuffer = NULL;
+
+        if (mnb) {
+            wl_surface_attach(m_wl_surface, mnb->getWlBuffer(), 0, 0);
+            m_attached_height = m_wl_window->height;
+        }
+
+        uint32_t surface_version = wl_proxy_get_version((struct wl_proxy*)m_wl_surface);
+
+        if (m_damage_n_rects > 0 && m_damage_rects && m_attached_height > 0) {
+            for (int i = 0; i < m_damage_n_rects; i++) {
+                const int* rect = &m_damage_rects[i * 4];
+                if (surface_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION) {
+                    wl_surface_damage_buffer(m_wl_surface, rect[0],
+                        m_attached_height - rect[1] - rect[3], rect[2], rect[3]);
+                } else {
+                    wl_surface_damage(m_wl_surface, rect[0], m_attached_height - rect[1] - rect[3],
+                        rect[2], rect[3]);
+                }
+            }
+        } else if (mnb) {
+            if (surface_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION) {
+                wl_surface_damage_buffer(m_wl_surface, 0, 0, INT32_MAX, INT32_MAX);
+            } else {
+                wl_surface_damage(m_wl_surface, 0, 0, INT32_MAX, INT32_MAX);
+            }
+        }
+
+        m_damage_rects = NULL;
+        m_damage_n_rects = 0;
+
+        wl_surface_commit(m_wl_surface);
+        wl_display_flush(m_wl_display);
     }
 
     void prepareSwap(EGLint* damage_rects, EGLint damage_n_rects) {
@@ -368,7 +406,13 @@ private:
     EGLint* m_damage_rects;
     EGLint m_damage_n_rects;
 
+    struct wl_callback* m_frame_callback;
+    MembraneNativeWindowBuffer* m_queuedBuffer;
+    int m_attached_height;
+    int m_swap_interval;
+
     void destroyBuffers() {
+        m_queuedBuffer = NULL;
         for (int i = 0; i < 4; i++) {
             m_buffers[i].release();
         }
@@ -438,11 +482,24 @@ private:
         win->handleRelease(wl_buffer);
     }
 
+    static void frame_callback_static(void* data, struct wl_callback* callback, uint32_t time) {
+        (void)time;
+        MembraneNativeWindow* win = static_cast<MembraneNativeWindow*>(data);
+        if (win->m_frame_callback == callback) {
+            win->m_frame_callback = NULL;
+        }
+        wl_callback_destroy(callback);
+    }
+
     static const struct wl_buffer_listener s_buffer_listener;
+    static const struct wl_callback_listener s_frame_listener;
 };
 
 const struct wl_buffer_listener MembraneNativeWindow::s_buffer_listener
     = { .release = MembraneNativeWindow::buffer_release_static };
+
+const struct wl_callback_listener MembraneNativeWindow::s_frame_listener
+    = { .done = MembraneNativeWindow::frame_callback_static };
 
 struct MembraneDisplay : public _EGLDisplay {
     struct wl_display* wl_dpy;
@@ -639,7 +696,8 @@ extern "C" void membranews_prepareSwap(
 
 extern "C" void membranews_finishSwap(EGLDisplay dpy, EGLNativeWindowType win) {
     (void)dpy;
-    (void)win;
+    MembraneNativeWindow* window = static_cast<MembraneNativeWindow*>((struct ANativeWindow*)win);
+    window->finishSwap();
 }
 
 extern "C" void membranews_setSwapInterval(
