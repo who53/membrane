@@ -36,9 +36,7 @@ static int g_mfd = -1;
 static DroidLeds* g_droid_leds = NULL;
 static bool g_has_backlight = false;
 static bool g_backlight_slept = false;
-static ANativeWindowBuffer* g_last_buffer = NULL;
 static hwc2_compat_layer_t* g_layer = NULL;
-static bool g_needs_revalidate = true;
 
 #define BUFFER_CACHE_SIZE 64
 static struct {
@@ -131,48 +129,34 @@ static buffer_handle_t import_buffer_from_fds(int* fds, int num_fds) {
 static void do_present_block(hwc2_compat_display_t* display, struct ANativeWindowBuffer* anw) {
     uint32_t numTypes = 0;
     uint32_t numReqs = 0;
-    static bool needs_validate = true;
 
-    if (anw != g_last_buffer || g_needs_revalidate) {
-        hwc2_compat_layer_set_buffer(g_layer, 0, anw, -1);
+    hwc2_compat_layer_set_buffer(g_layer, 0, anw, -1);
+
+    hwc2_error_t err = hwc2_compat_display_validate(display, &numTypes, &numReqs);
+
+    if (err != HWC2_ERROR_NONE && err != HWC2_ERROR_HAS_CHANGES) {
+        membrane_err("validate failed: %d", err);
+        return;
     }
 
-    if (needs_validate || g_needs_revalidate) {
-        g_needs_revalidate = false;
-        hwc2_error_t err = hwc2_compat_display_validate(display, &numTypes, &numReqs);
-
-        if (err != HWC2_ERROR_NONE && err != HWC2_ERROR_HAS_CHANGES) {
-            membrane_err("hwc2_compat_display_validate failed: err=%d", err);
-        }
-
-        if (numTypes || numReqs) {
-            err = hwc2_compat_display_accept_changes(display);
-            membrane_assert(err == HWC2_ERROR_NONE);
-            needs_validate = true;
-        } else {
-            needs_validate = false;
+    if (numTypes || numReqs) {
+        err = hwc2_compat_display_accept_changes(display);
+        if (err != HWC2_ERROR_NONE) {
+            membrane_err("accept_changes failed: %d", err);
+            return;
         }
     }
 
     int32_t presentFence = -1;
-    hwc2_error_t err = hwc2_compat_display_present(display, &presentFence);
+    err = hwc2_compat_display_present(display, &presentFence);
+
     if (err != HWC2_ERROR_NONE) {
-        membrane_err("hwc2_compat_display_present failed: err=%d (is compositor dead?)", err);
-        goto out;
+        membrane_err("present failed: %d", err);
+        return;
     }
 
-    if (g_last_buffer != anw) {
-        if (g_last_buffer != NULL) {
-            g_last_buffer->common.decRef(&g_last_buffer->common);
-        }
-        g_last_buffer = anw;
-        g_last_buffer->common.incRef(&g_last_buffer->common);
-    }
-
-out:
-    if (presentFence != -1) {
+    if (presentFence >= 0)
         close(presentFence);
-    }
 }
 
 static struct ANativeWindowBuffer* membrane_handle_present(int mfd) {
@@ -254,16 +238,12 @@ static void handle_dpms_event(hwc2_compat_display_t* display, uint32_t value) {
 
     if (g_display_enabled && change_backlight && g_backlight_slept) {
         guint level = droid_leds_get_backlight(g_droid_leds);
-
         if (level == 0)
             level = 5;
 
         droid_leds_set_backlight(g_droid_leds, level, FALSE);
         g_backlight_slept = false;
     }
-
-    if (g_display_enabled)
-        g_needs_revalidate = true;
 
     membrane_debug("DPMS %s", g_display_enabled ? "ON" : "OFF");
 }
@@ -280,6 +260,7 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t* display, HWC2Dis
         }
 
         if (ev.flags & MEMBRANE_DPMS_UPDATED) {
+            clear_buffer_cache();
             handle_dpms_event(display, ev.value);
         }
 
