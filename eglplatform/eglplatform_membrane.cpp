@@ -341,7 +341,7 @@ public:
     }
 
     void handleRelease(struct wl_buffer* wl_buf) {
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < m_bufferCount; i++) {
             if (m_buffers[i].getWlBuffer() == wl_buf) {
                 m_buffers[i].setBusy(0);
                 break;
