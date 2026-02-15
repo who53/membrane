@@ -40,7 +40,6 @@ struct membrane_get_present_fd {
 #define DRM_MEMBRANE_GET_PRESENT_FD 0x23
 #define DRM_MEMBRANE_CONFIG 0x24
 #define DRM_MEMBRANE_SIGNAL 0x25
-#define DRM_MEMBRANE_NOTIFY_VSYNC 0x26
 
 #define DRM_IOCTL_MEMBRANE_GET_PRESENT_FD                                                          \
     DRM_IOWR(DRM_COMMAND_BASE + DRM_MEMBRANE_GET_PRESENT_FD, struct membrane_get_present_fd)
@@ -50,7 +49,5 @@ struct membrane_get_present_fd {
 
 #define DRM_IOCTL_MEMBRANE_SIGNAL                                                                  \
     DRM_IOWR(DRM_COMMAND_BASE + DRM_MEMBRANE_SIGNAL, struct membrane_event)
-
-#define DRM_IOCTL_MEMBRANE_NOTIFY_VSYNC DRM_IO(DRM_COMMAND_BASE + DRM_MEMBRANE_NOTIFY_VSYNC)
 
 #endif
