@@ -274,14 +274,8 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t* display, HWC2Dis
     }
 }
 
-static void on_vsync(HWC2EventListener* l, int32_t id, hwc2_display_t d, int64_t ts) { }
-
 static void on_hotplug(HWC2EventListener* l, int32_t id, hwc2_display_t d, bool c, bool p) {
     membrane_debug("hotplug display=%lu connected=%d primary=%d", d, c, p);
-}
-
-static void on_refresh(HWC2EventListener* l, int32_t id, hwc2_display_t d) {
-    membrane_debug("refresh display=%lu", d);
 }
 
 int main(void) {
@@ -294,9 +288,7 @@ int main(void) {
     membrane_assert(device);
 
     HWC2EventListener listener = {};
-    listener.on_vsync_received = on_vsync;
     listener.on_hotplug_received = on_hotplug;
-    listener.on_refresh_received = on_refresh;
 
     hwc2_compat_device_register_callback(device, &listener, 0);
     hwc2_compat_device_on_hotplug(device, 0, true);
@@ -322,7 +314,6 @@ int main(void) {
     }
 
     hwc2_compat_display_set_power_mode(display, HWC2_POWER_MODE_ON);
-    hwc2_compat_display_set_vsync_enabled(display, HWC2_VSYNC_ENABLE);
 
     HWC2DisplayConfig* cfg = hwc2_compat_display_get_active_config(display);
     membrane_assert(cfg);
