@@ -37,9 +37,6 @@ static const struct drm_crtc_helper_funcs membrane_crtc_helper_funcs = {
 };
 
 static const struct drm_crtc_funcs membrane_crtc_funcs = {
-    .cursor_set2 = membrane_cursor_set2,
-    .cursor_move = membrane_cursor_move,
-    .gamma_set = membrane_gamma_set,
     .destroy = drm_crtc_cleanup,
     .set_config = drm_atomic_helper_set_config,
     .page_flip = drm_atomic_helper_page_flip,
@@ -59,6 +56,7 @@ void membrane_atomic_commit_tail(struct drm_atomic_state* state) {
     drm_atomic_helper_commit_planes(dev, state, 0);
     drm_atomic_helper_commit_modeset_enables(dev, state);
     drm_atomic_helper_commit_hw_done(state);
+
     drm_atomic_helper_cleanup_planes(dev, state);
 }
 
@@ -67,29 +65,14 @@ static struct drm_mode_config_helper_funcs membrane_mode_config_helper_funcs = {
 };
 
 static int membrane_connector_get_modes(struct drm_connector* connector) {
-    struct drm_device* dev = connector->dev;
-    struct membrane_device* mdev = container_of(dev, struct membrane_device, dev);
     struct drm_display_mode* mode;
-    int w, h, r;
+    struct membrane_device* mdev = container_of(connector->dev, struct membrane_device, dev);
 
-    membrane_debug("%s", __func__);
-    mode = drm_mode_create(connector->dev);
+    mode = drm_cvt_mode(connector->dev, mdev->w, mdev->h, mdev->r, false, false, false);
     if (!mode) {
-        membrane_debug("drm_mode_create failed");
+        membrane_err("drm_cvt_mode failed");
         return 0;
     }
-
-    w = READ_ONCE(mdev->w);
-    h = READ_ONCE(mdev->h);
-    r = READ_ONCE(mdev->r);
-
-    mode->hdisplay = w;
-    mode->hsync_start = mode->hdisplay + 60;
-    mode->hsync_end = mode->hsync_start + 14;
-    mode->htotal = mode->hsync_end + 170;
-    mode->vdisplay = h;
-    mode->vsync_start = mode->vdisplay + 32, mode->vsync_end = mode->vsync_start + 8,
-    mode->vtotal = mode->vsync_end + 184, mode->clock = mode->htotal * mode->vtotal * r / 1000;
 
     mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
     drm_mode_set_name(mode);
@@ -100,7 +83,6 @@ static int membrane_connector_get_modes(struct drm_connector* connector) {
 
 static enum drm_mode_status membrane_connector_mode_valid(
     struct drm_connector* connector, struct drm_display_mode* mode) {
-    membrane_debug("%s", __func__);
     return MODE_OK;
 }
 
@@ -111,7 +93,6 @@ static const struct drm_connector_helper_funcs membrane_connector_helper_funcs =
 
 static enum drm_connector_status membrane_connector_detect(
     struct drm_connector* connector, bool force) {
-    membrane_debug("%s", __func__);
     return connector_status_connected;
 }
 
@@ -140,9 +121,9 @@ static int membrane_load(struct membrane_device* mdev) {
     mdev->active_state = NULL;
     mdev->pending_state = NULL;
 
-    atomic_set(&mdev->event_flags, 0);
+    init_completion(&mdev->event_done);
+    memset(&mdev->pending_event, 0, sizeof(mdev->pending_event));
     atomic_set(&mdev->dpms_state, MEMBRANE_DPMS_OFF);
-    init_waitqueue_head(&mdev->event_wait);
     atomic_set(&mdev->stopping, 0);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
@@ -150,7 +131,7 @@ static int membrane_load(struct membrane_device* mdev) {
 #else
     ret = drm_mode_config_init(dev);
     if (ret) {
-        membrane_debug("drm_mode_config_init failed: %d", ret);
+        membrane_err("drm_mode_config_init failed: %d", ret);
         return ret;
     }
 #endif
@@ -170,7 +151,7 @@ static int membrane_load(struct membrane_device* mdev) {
         NULL, DRM_PLANE_TYPE_PRIMARY, NULL);
 #endif
     if (ret) {
-        membrane_debug("drm_universal_plane_init failed: %d", ret);
+        membrane_err("drm_universal_plane_init failed: %d", ret);
         return ret;
     }
 
@@ -180,14 +161,14 @@ static int membrane_load(struct membrane_device* mdev) {
     ret = drm_crtc_init_with_planes(
         dev, &mdev->crtc, &mdev->plane, NULL, &membrane_crtc_funcs, NULL);
     if (ret) {
-        membrane_debug("drm_crtc_init_with_planes failed: %d", ret);
+        membrane_err("drm_crtc_init_with_planes failed: %d", ret);
         return ret;
     }
 
     ret = drm_encoder_init(
         dev, &mdev->encoder, &membrane_encoder_funcs, DRM_MODE_ENCODER_DSI, NULL);
     if (ret) {
-        membrane_debug("drm_encoder_init failed: %d", ret);
+        membrane_err("drm_encoder_init failed: %d", ret);
         return ret;
     }
 
@@ -196,7 +177,7 @@ static int membrane_load(struct membrane_device* mdev) {
     ret = drm_connector_init(
         dev, &mdev->connector, &membrane_connector_funcs, DRM_MODE_CONNECTOR_DSI);
     if (ret) {
-        membrane_debug("drm_connector_init failed: %d", ret);
+        membrane_err("drm_connector_init failed: %d", ret);
         return ret;
     }
 
@@ -208,19 +189,13 @@ static int membrane_load(struct membrane_device* mdev) {
     ret = drm_connector_attach_encoder(&mdev->connector, &mdev->encoder);
 #endif
     if (ret) {
-        membrane_debug("drm_mode_connector_attach_encoder failed: %d", ret);
-        return ret;
-    }
-
-    ret = drm_mode_crtc_set_gamma_size(&mdev->crtc, 256);
-    if (ret) {
-        membrane_debug("drm_mode_crtc_set_gamma_size failed: %d", ret);
+        membrane_err("drm_mode_connector_attach_encoder failed: %d", ret);
         return ret;
     }
 
     ret = drm_vblank_init(dev, 1);
     if (ret) {
-        membrane_debug("drm_vblank_init failed: %d", ret);
+        membrane_err("drm_vblank_init failed: %d", ret);
         return ret;
     }
 
@@ -233,14 +208,18 @@ static void membrane_postclose(struct drm_device* dev, struct drm_file* file) {
     struct membrane_device* mdev = container_of(dev, struct membrane_device, dev);
 
     if (READ_ONCE(mdev->event_consumer) == file) {
+        struct drm_framebuffer* old;
+
         WRITE_ONCE(mdev->event_consumer, NULL);
         atomic_set(&mdev->stopping, 1);
-        wake_up_all(&mdev->event_wait);
+        complete_all(&mdev->event_done);
 
-        membrane_present_free(xchg(&mdev->active_state, NULL));
-        membrane_present_free(xchg(&mdev->pending_state, NULL));
-
-        atomic_set(&mdev->event_flags, 0);
+        old = xchg(&mdev->active_state, NULL);
+        if (old)
+            drm_framebuffer_put(old);
+        old = xchg(&mdev->pending_state, NULL);
+        if (old)
+            drm_framebuffer_put(old);
     }
 }
 
@@ -288,18 +267,18 @@ static int membrane_probe(struct platform_device* pdev) {
     struct drm_device* dev;
     int ret;
 
-    membrane_debug("%s", __func__);
+    membrane_debug("probe %s", pdev->name);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
     mdev = devm_kzalloc(&pdev->dev, sizeof(*mdev), GFP_KERNEL);
     if (!mdev) {
-        membrane_debug("devm_kzalloc failed");
+        membrane_err("devm_kzalloc failed");
         return -ENOMEM;
     }
 #else
     mdev = devm_drm_dev_alloc(&pdev->dev, &membrane_driver, typeof(*mdev), dev);
     if (IS_ERR(mdev)) {
-        membrane_debug("devm_drm_dev_alloc failed");
+        membrane_err("devm_drm_dev_alloc failed");
         return PTR_ERR(mdev);
     }
 #endif
@@ -307,26 +286,26 @@ static int membrane_probe(struct platform_device* pdev) {
     dev = &mdev->dev;
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
-    membrane_debug("calling drm_dev_init");
+    membrane_debug("drm_dev_init");
     ret = drm_dev_init(dev, &membrane_driver, &pdev->dev);
     if (ret) {
-        membrane_debug("drm_dev_init failed: %d", ret);
+        membrane_err("drm_dev_init failed: %d", ret);
         return ret;
     }
-    membrane_debug("called drm_dev_init");
+    membrane_debug("drm_dev_init done");
 #endif
 
     platform_set_drvdata(pdev, dev);
 
     ret = membrane_load(mdev);
     if (ret) {
-        membrane_debug("membrane_load failed: %d", ret);
+        membrane_err("membrane_load failed: %d", ret);
         goto err_free;
     }
 
     ret = drm_dev_register(dev, 0);
     if (ret) {
-        membrane_debug("drm_dev_register failed: %d", ret);
+        membrane_err("drm_dev_register failed: %d", ret);
         goto err_free;
     }
 
@@ -337,13 +316,13 @@ err_free:
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
     drm_dev_put(dev);
 #endif
-    membrane_debug("probe failed");
+    membrane_err("probe failed");
     return ret;
 }
 
 static int membrane_remove(struct platform_device* pdev) {
     struct drm_device* drm = platform_get_drvdata(pdev);
-    membrane_debug("%s", __func__);
+    membrane_debug("remove");
 
     drm_dev_unregister(drm);
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
@@ -366,17 +345,17 @@ static struct platform_device* membrane_pdev;
 static int __init membrane_init(void) {
     int ret;
 
-    membrane_debug("%s", __func__);
+    membrane_debug("init");
 
     ret = platform_driver_register(&membrane_platform_driver);
     if (ret) {
-        membrane_debug("platform_driver_register failed");
+        membrane_err("platform_driver_register failed");
         return ret;
     }
 
     membrane_pdev = platform_device_register_simple("membrane", -1, NULL, 0);
     if (IS_ERR(membrane_pdev)) {
-        membrane_debug("platform_device_register_simple failed");
+        membrane_err("platform_device_register_simple failed");
         platform_driver_unregister(&membrane_platform_driver);
         return PTR_ERR(membrane_pdev);
     }
@@ -385,7 +364,7 @@ static int __init membrane_init(void) {
 }
 
 static void __exit membrane_exit(void) {
-    membrane_debug("%s", __func__);
+    membrane_debug("exit");
     platform_device_unregister(membrane_pdev);
     platform_driver_unregister(&membrane_platform_driver);
 }

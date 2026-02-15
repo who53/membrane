@@ -5,6 +5,7 @@
 #define _MEMBRANE_DRV_H_
 
 #include <linux/atomic.h>
+#include <linux/completion.h>
 #include <linux/file.h>
 #include <linux/llist.h>
 #include <linux/spinlock.h>
@@ -35,16 +36,11 @@
 
 #define MAX_PRESENTS 64
 
-struct membrane_present {
-    u32 buffer_id;
-    u32 num_files;
-    struct file* files[MEMBRANE_MAX_FDS];
-};
-
 struct membrane_framebuffer {
     struct drm_framebuffer base;
     struct file* files[MEMBRANE_MAX_FDS];
     uint32_t handles[MEMBRANE_MAX_FDS];
+    u32 num_files;
 };
 
 struct membrane_device {
@@ -56,18 +52,16 @@ struct membrane_device {
 
     struct drm_file* event_consumer;
 
-    struct membrane_present* active_state;
-    struct membrane_present* pending_state;
+    struct drm_framebuffer* active_state;
+    struct drm_framebuffer* pending_state;
 
     int w, h, r;
 
-    atomic_t event_flags;
+    struct completion event_done;
+    struct membrane_event pending_event;
     atomic_t dpms_state;
-    wait_queue_head_t event_wait;
     atomic_t stopping;
 };
-
-void membrane_present_free(struct membrane_present* p);
 
 int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_priv);
 int membrane_signal(struct drm_device* dev, void* data, struct drm_file* file_priv);
@@ -97,16 +91,6 @@ void membrane_crtc_disable(struct drm_crtc* crtc, struct drm_atomic_state* state
 void membrane_crtc_atomic_flush(struct drm_crtc* crtc, struct drm_atomic_state* state);
 #endif
 
-int membrane_cursor_set2(struct drm_crtc* crtc, struct drm_file* file_priv, uint32_t handle,
-    uint32_t width, uint32_t height, int32_t hot_x, int32_t hot_y);
-int membrane_cursor_move(struct drm_crtc* crtc, int x, int y);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
-int membrane_gamma_set(struct drm_crtc* crtc, u16* r, u16* g, u16* b, uint32_t size);
-#else
-int membrane_gamma_set(struct drm_crtc* crtc, u16* r, u16* g, u16* b, uint32_t size,
-    struct drm_modeset_acquire_ctx* ctx);
-#endif
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 13, 0)
 void membrane_plane_atomic_update(struct drm_plane* plane, struct drm_plane_state* old_state);
 void membrane_plane_atomic_disable(struct drm_plane* plane, struct drm_plane_state* old_state);
@@ -114,8 +98,6 @@ void membrane_plane_atomic_disable(struct drm_plane* plane, struct drm_plane_sta
 void membrane_plane_atomic_update(struct drm_plane* plane, struct drm_atomic_state* state);
 void membrane_plane_atomic_disable(struct drm_plane* plane, struct drm_atomic_state* state);
 #endif
-
-void membrane_atomic_commit_tail(struct drm_atomic_state* state);
 
 int membrane_prime_fd_to_handle(
     struct drm_device* dev, struct drm_file* file_priv, int prime_fd, uint32_t* handle);
@@ -139,6 +121,7 @@ static const struct drm_ioctl_desc membrane_ioctls[] = {
 };
 
 #define membrane_debug(fmt, ...) pr_debug("membrane: %s: " fmt "\n", __func__, ##__VA_ARGS__)
+#define membrane_err(fmt, ...) pr_err("membrane: %s: " fmt "\n", __func__, ##__VA_ARGS__)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
 #define drm_dev_put(dev) drm_dev_unref(dev)
@@ -146,6 +129,8 @@ static const struct drm_ioctl_desc membrane_ioctls[] = {
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
 #define drm_gem_object_put(obj) drm_gem_object_unreference_unlocked(obj)
+#define drm_framebuffer_get(obj) drm_framebuffer_reference(obj)
+#define drm_framebuffer_put(obj) drm_framebuffer_unreference(obj)
 #endif
 
 #endif
