@@ -32,7 +32,6 @@ int hybris_gralloc_import_buffer(buffer_handle_t raw_handle, buffer_handle_t* ou
 
 static uint32_t g_stride = 0;
 static bool g_display_enabled = false;
-static int g_mfd = -1;
 static DroidLeds* g_droid_leds = NULL;
 static bool g_has_backlight = false;
 static bool g_backlight_slept = false;
@@ -275,11 +274,7 @@ static void membrane_event_loop(int mfd, hwc2_compat_display_t* display, HWC2Dis
     }
 }
 
-static void on_vsync(HWC2EventListener* l, int32_t id, hwc2_display_t d, int64_t ts) {
-    if (g_mfd >= 0) {
-        ioctl(g_mfd, DRM_IOCTL_MEMBRANE_NOTIFY_VSYNC, NULL);
-    }
-}
+static void on_vsync(HWC2EventListener* l, int32_t id, hwc2_display_t d, int64_t ts) { }
 
 static void on_hotplug(HWC2EventListener* l, int32_t id, hwc2_display_t d, bool c, bool p) {
     membrane_debug("hotplug display=%lu connected=%d primary=%d", d, c, p);
@@ -290,7 +285,7 @@ static void on_refresh(HWC2EventListener* l, int32_t id, hwc2_display_t d) {
 }
 
 int main(void) {
-    int mfd = g_mfd = open("/dev/dri/by-path/platform-membrane-card", O_RDWR | O_CLOEXEC);
+    int mfd = open("/dev/dri/by-path/platform-membrane-card", O_RDWR | O_CLOEXEC);
     membrane_assert(mfd >= 0);
 
     drmDropMaster(mfd);
