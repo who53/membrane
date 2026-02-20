@@ -118,13 +118,7 @@ static int membrane_load(struct membrane_device* mdev) {
     mdev->h = 1080;
     mdev->r = 60;
 
-    mdev->active_state = NULL;
-    mdev->pending_state = NULL;
-
     init_completion(&mdev->event_done);
-    memset(&mdev->pending_event, 0, sizeof(mdev->pending_event));
-    atomic_set(&mdev->dpms_state, MEMBRANE_DPMS_OFF);
-    atomic_set(&mdev->stopping, 0);
 
     hrtimer_init(&mdev->vblank_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     mdev->vblank_timer.function = membrane_vblank_timer_fn;

@@ -7,7 +7,6 @@
 #include <linux/atomic.h>
 #include <linux/completion.h>
 #include <linux/file.h>
-#include <linux/llist.h>
 #include <linux/spinlock.h>
 #include <linux/version.h>
 
@@ -23,6 +22,7 @@
 #include <drm/drm_probe_helper.h>
 #endif
 
+#include "uapi/membrane.h"
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_connector.h>
@@ -32,16 +32,23 @@
 #include <drm/drm_gem.h>
 #include <drm/drm_plane_helper.h>
 
-#include "uapi/membrane.h"
+struct membrane_gem_object {
+    struct drm_gem_object base;
+    struct file* dmabuf_file;
+};
 
-#define MAX_PRESENTS 64
+static inline struct membrane_gem_object* to_membrane_gem(struct drm_gem_object* obj) {
+    return container_of(obj, struct membrane_gem_object, base);
+}
 
 struct membrane_framebuffer {
     struct drm_framebuffer base;
-    struct file* files[MEMBRANE_MAX_FDS];
-    uint32_t handles[MEMBRANE_MAX_FDS];
-    u32 num_files;
+    struct drm_gem_object* objs[MEMBRANE_MAX_FDS];
 };
+
+static inline struct membrane_framebuffer* to_membrane_fb(struct drm_framebuffer* fb) {
+    return container_of(fb, struct membrane_framebuffer, base);
+}
 
 struct membrane_device {
     struct drm_device dev;
@@ -69,10 +76,6 @@ int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_pr
 int membrane_signal(struct drm_device* dev, void* data, struct drm_file* file_priv);
 void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 num_fds);
 enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer);
-
-static inline struct membrane_framebuffer* to_membrane_framebuffer(struct drm_framebuffer* fb) {
-    return container_of(fb, struct membrane_framebuffer, base);
-}
 
 struct drm_framebuffer* membrane_fb_create(
     struct drm_device* dev, struct drm_file* file_priv, const struct drm_mode_fb_cmd2* mode_cmd);
@@ -112,7 +115,6 @@ int membrane_enable_vblank(struct drm_device* dev, unsigned int pipe);
 void membrane_disable_vblank(struct drm_device* dev, unsigned int pipe);
 
 void membrane_gem_free_object(struct drm_gem_object* obj);
-struct file* membrane_gem_handle_to_file(struct drm_file* file_priv, uint32_t handle);
 
 static const struct drm_ioctl_desc membrane_ioctls[] = {
     DRM_IOCTL_DEF_DRV(

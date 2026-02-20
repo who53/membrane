@@ -3,15 +3,6 @@
 
 #include "membrane_drv.h"
 
-struct membrane_gem_object {
-    struct drm_gem_object base;
-    struct file* dmabuf_file;
-};
-
-static inline struct membrane_gem_object* to_membrane_gem(struct drm_gem_object* obj) {
-    return container_of(obj, struct membrane_gem_object, base);
-}
-
 void membrane_gem_free_object(struct drm_gem_object* gem_obj) {
     struct membrane_gem_object* obj = to_membrane_gem(gem_obj);
 
@@ -40,7 +31,7 @@ int membrane_prime_fd_to_handle(
         return -ENOMEM;
     }
 
-    ret = drm_gem_object_init(dev, &obj->base, PAGE_SIZE);
+    ret = drm_gem_object_init(dev, &obj->base, 0);
     if (ret) {
         membrane_err("prime_fd_to_handle: drm_gem_object_init failed");
         kfree(obj);
@@ -68,30 +59,4 @@ int membrane_prime_handle_to_fd(struct drm_device* dev, struct drm_file* file_pr
     uint32_t flags, int* prime_fd) {
     membrane_err("shouldnt get called");
     return -ENOSYS;
-}
-
-struct file* membrane_gem_handle_to_file(struct drm_file* file_priv, uint32_t handle) {
-    struct drm_gem_object* gem_obj;
-    struct membrane_gem_object* obj;
-    struct file* file;
-
-    gem_obj = drm_gem_object_lookup(file_priv, handle);
-    if (!gem_obj) {
-        membrane_err(
-            "gem_handle_to_file: lookup failed for handle=%u file_priv=%p", handle, file_priv);
-        return NULL;
-    }
-
-    obj = to_membrane_gem(gem_obj);
-    file = obj->dmabuf_file;
-
-    if (file) {
-        get_file(file);
-    } else {
-        membrane_err(
-            "gem_handle_to_file: NULL dmabuf_file for handle=%u gem_obj=%p", handle, gem_obj);
-    }
-
-    drm_gem_object_put(gem_obj);
-    return file;
 }

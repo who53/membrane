@@ -34,12 +34,19 @@ enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer) {
 
     fb = xchg(&mdev->pending_state, NULL);
     if (fb) {
-        struct membrane_framebuffer* mfb = to_membrane_framebuffer(fb);
+        struct membrane_framebuffer* mfb = to_membrane_fb(fb);
+        unsigned int count = 0;
+        unsigned int i;
 
         old = xchg(&mdev->active_state, fb);
         if (old)
             drm_framebuffer_put(old);
-        membrane_send_event(mdev, MEMBRANE_PRESENT_UPDATED, mfb->num_files);
+
+        for (i = 0; i < MEMBRANE_MAX_FDS; i++)
+            if (mfb->objs[i])
+                count++;
+
+        membrane_send_event(mdev, MEMBRANE_PRESENT_UPDATED, count);
     }
 
     drm_crtc_handle_vblank(&mdev->crtc);
@@ -80,18 +87,16 @@ int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_pr
 }
 
 static void membrane_fb_destroy(struct drm_framebuffer* fb) {
-    struct membrane_framebuffer* mfb = to_membrane_framebuffer(fb);
-    int i;
+    struct membrane_framebuffer* mfb = to_membrane_fb(fb);
+    unsigned int i;
 
     for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
-        if (mfb->files[i]) {
-            fput(mfb->files[i]);
-            mfb->files[i] = NULL;
-        }
+        if (mfb->objs[i])
+            drm_gem_object_put(mfb->objs[i]);
     }
 
     drm_framebuffer_cleanup(fb);
-    kfree(fb);
+    kfree(mfb);
 }
 
 static const struct drm_framebuffer_funcs membrane_fb_funcs = {
@@ -101,7 +106,8 @@ static const struct drm_framebuffer_funcs membrane_fb_funcs = {
 struct drm_framebuffer* membrane_fb_create(
     struct drm_device* dev, struct drm_file* file_priv, const struct drm_mode_fb_cmd2* mode_cmd) {
     struct membrane_framebuffer* mfb;
-    int ret, i;
+    unsigned int i;
+    int ret = 0;
 
     mfb = kzalloc(sizeof(*mfb), GFP_KERNEL);
     if (!mfb) {
@@ -114,36 +120,31 @@ struct drm_framebuffer* membrane_fb_create(
     drm_helper_mode_fill_fb_struct(dev, &mfb->base, mode_cmd);
 #endif
 
-    ret = drm_framebuffer_init(dev, &mfb->base, &membrane_fb_funcs);
-    if (ret) {
-        membrane_err("failed to initialize framebuffer");
-        kfree(mfb);
-        return ERR_PTR(ret);
-    }
-
     for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
-        if (mode_cmd->handles[i] != 0) {
-            mfb->files[i] = membrane_gem_handle_to_file(file_priv, mode_cmd->handles[i]);
-            if (!mfb->files[i]) {
-                membrane_err("Failed to get file for handle %u", mode_cmd->handles[i]);
-                ret = -ENOENT;
-                goto err_cleanup;
-            }
-            mfb->handles[i] = mode_cmd->handles[i];
-            mfb->num_files++;
+
+        if (!mode_cmd->handles[i])
+            continue;
+
+        mfb->objs[i] = drm_gem_object_lookup(file_priv, mode_cmd->handles[i]);
+
+        if (!mfb->objs[i]) {
+            ret = -ENOENT;
+            goto err;
         }
     }
+
+    ret = drm_framebuffer_init(dev, &mfb->base, &membrane_fb_funcs);
+    if (ret)
+        goto err;
 
     return &mfb->base;
 
-err_cleanup:
+err:
     while (i--) {
-        if (mfb->files[i]) {
-            fput(mfb->files[i]);
-        }
+        if (mfb->objs[i])
+            drm_gem_object_put(mfb->objs[i]);
     }
 
-    drm_framebuffer_cleanup(&mfb->base);
     kfree(mfb);
     return ERR_PTR(ret);
 }
@@ -239,7 +240,8 @@ int membrane_get_present_fd(struct drm_device* dev, void* data, struct drm_file*
     struct membrane_get_present_fd* args = data;
     struct drm_framebuffer* fb;
     struct membrane_framebuffer* mfb;
-    int i, count = 0;
+    unsigned int i;
+    int count = 0;
 
     fb = xchg(&mdev->active_state, NULL);
     if (!fb) {
@@ -250,27 +252,32 @@ int membrane_get_present_fd(struct drm_device* dev, void* data, struct drm_file*
         return 0;
     }
 
-    mfb = to_membrane_framebuffer(fb);
+    mfb = to_membrane_fb(fb);
     args->buffer_id = fb->base.id;
-    args->num_fds = mfb->num_files;
 
     for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
-        struct file* f = mfb->files[i];
+
+        struct drm_gem_object* obj = mfb->objs[i];
+        struct membrane_gem_object* mobj;
         int fd;
 
-        if (!f) {
+        if (!obj) {
             args->fds[i] = -1;
             continue;
         }
+
+        mobj = to_membrane_gem(obj);
+
+        get_file(mobj->dmabuf_file);
 
         fd = get_unused_fd_flags(O_CLOEXEC);
         if (fd < 0) {
+            fput(mobj->dmabuf_file);
             args->fds[i] = -1;
             continue;
         }
 
-        get_file(f);
-        fd_install(fd, f);
+        fd_install(fd, mobj->dmabuf_file);
         args->fds[i] = fd;
         count++;
     }
@@ -278,7 +285,6 @@ int membrane_get_present_fd(struct drm_device* dev, void* data, struct drm_file*
     args->num_fds = count;
 
     drm_framebuffer_put(fb);
-
     return 0;
 }
 
