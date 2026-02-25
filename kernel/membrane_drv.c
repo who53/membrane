@@ -256,9 +256,6 @@ static struct drm_driver membrane_driver = {
     .ioctls = membrane_ioctls,
     .num_ioctls = ARRAY_SIZE(membrane_ioctls),
     .postclose = membrane_postclose,
-    .get_vblank_counter = membrane_get_vblank_counter,
-    .enable_vblank = membrane_enable_vblank,
-    .disable_vblank = membrane_disable_vblank,
 };
 
 static int membrane_probe(struct platform_device* pdev) {

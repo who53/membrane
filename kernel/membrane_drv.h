@@ -110,10 +110,6 @@ int membrane_prime_handle_to_fd(struct drm_device* dev, struct drm_file* file_pr
     uint32_t flags, int* prime_fd);
 int membrane_get_present_fd(struct drm_device* dev, void* data, struct drm_file* file);
 
-u32 membrane_get_vblank_counter(struct drm_device* dev, unsigned int pipe);
-int membrane_enable_vblank(struct drm_device* dev, unsigned int pipe);
-void membrane_disable_vblank(struct drm_device* dev, unsigned int pipe);
-
 void membrane_gem_free_object(struct drm_gem_object* obj);
 
 static const struct drm_ioctl_desc membrane_ioctls[] = {

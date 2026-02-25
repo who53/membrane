@@ -55,7 +55,7 @@ enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer) {
         int r = READ_ONCE(mdev->r);
         if (r <= 0)
             r = 60;
-        hrtimer_forward_now(timer, ns_to_ktime(1000000000ULL / r));
+        hrtimer_forward_now(timer, ns_to_ktime(NSEC_PER_SEC / r));
         return HRTIMER_RESTART;
     }
 
@@ -65,7 +65,6 @@ enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer) {
 int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_priv) {
     struct membrane_device* mdev = container_of(dev, struct membrane_device, dev);
     struct membrane_u2k_cfg* cfg = data;
-    bool mode_changed = false;
 
     if (!READ_ONCE(mdev->event_consumer)) {
         WRITE_ONCE(mdev->event_consumer, file_priv);
@@ -77,11 +76,8 @@ int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_pr
         WRITE_ONCE(mdev->w, cfg->w);
         WRITE_ONCE(mdev->h, cfg->h);
         WRITE_ONCE(mdev->r, cfg->r);
-        mode_changed = true;
-    }
-
-    if (mode_changed)
         drm_kms_helper_hotplug_event(&mdev->dev);
+    }
 
     return 0;
 }
@@ -224,7 +220,7 @@ void membrane_crtc_atomic_flush(struct drm_crtc* crtc, struct drm_atomic_state* 
         int r = READ_ONCE(mdev->r);
         if (r <= 0)
             r = 60;
-        hrtimer_start(&mdev->vblank_timer, ns_to_ktime(1000000000ULL / r), HRTIMER_MODE_REL);
+        hrtimer_start(&mdev->vblank_timer, ns_to_ktime(NSEC_PER_SEC / r), HRTIMER_MODE_REL);
     }
 
     if (event) {
@@ -256,7 +252,6 @@ int membrane_get_present_fd(struct drm_device* dev, void* data, struct drm_file*
     args->buffer_id = fb->base.id;
 
     for (i = 0; i < MEMBRANE_MAX_FDS; i++) {
-
         struct drm_gem_object* obj = mfb->objs[i];
         struct membrane_gem_object* mobj;
         int fd;
@@ -267,7 +262,6 @@ int membrane_get_present_fd(struct drm_device* dev, void* data, struct drm_file*
         }
 
         mobj = to_membrane_gem(obj);
-
         get_file(mobj->dmabuf_file);
 
         fd = get_unused_fd_flags(O_CLOEXEC);
@@ -287,9 +281,3 @@ int membrane_get_present_fd(struct drm_device* dev, void* data, struct drm_file*
     drm_framebuffer_put(fb);
     return 0;
 }
-
-u32 membrane_get_vblank_counter(struct drm_device* dev, unsigned int pipe) { return 0; }
-
-int membrane_enable_vblank(struct drm_device* dev, unsigned int pipe) { return 0; }
-
-void membrane_disable_vblank(struct drm_device* dev, unsigned int pipe) { }
