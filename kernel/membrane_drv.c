@@ -119,6 +119,7 @@ static int membrane_load(struct membrane_device* mdev) {
     mdev->r = 60;
 
     init_completion(&mdev->event_done);
+    spin_lock_init(&mdev->vblank_lock);
 
     hrtimer_init(&mdev->vblank_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
     mdev->vblank_timer.function = membrane_vblank_timer_fn;

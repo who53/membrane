@@ -3,6 +3,23 @@
 
 #include "membrane_drv.h"
 
+static void membrane_vblank_event_commit(
+    struct membrane_device* mdev, struct drm_pending_vblank_event* event) {
+    struct drm_pending_vblank_event* old;
+    unsigned long flags;
+
+    spin_lock_irqsave(&mdev->vblank_lock, flags);
+    old = mdev->pending_vblank_event;
+    mdev->pending_vblank_event = event;
+    spin_unlock_irqrestore(&mdev->vblank_lock, flags);
+
+    if (old) {
+        spin_lock_irqsave(&mdev->crtc.dev->event_lock, flags);
+        drm_crtc_send_vblank_event(&mdev->crtc, old);
+        spin_unlock_irqrestore(&mdev->crtc.dev->event_lock, flags);
+    }
+}
+
 void membrane_send_event(struct membrane_device* mdev, u32 flags, u32 value) {
     if (atomic_read(&mdev->stopping))
         return;
@@ -31,6 +48,7 @@ int membrane_signal(struct drm_device* dev, void* data, struct drm_file* file_pr
 enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer) {
     struct membrane_device* mdev = container_of(timer, struct membrane_device, vblank_timer);
     struct drm_framebuffer *fb, *old;
+    int r;
 
     fb = xchg(&mdev->pending_state, NULL);
     if (fb) {
@@ -51,15 +69,14 @@ enum hrtimer_restart membrane_vblank_timer_fn(struct hrtimer* timer) {
 
     drm_crtc_handle_vblank(&mdev->crtc);
 
-    if (READ_ONCE(mdev->pending_state)) {
-        int r = READ_ONCE(mdev->r);
-        if (r <= 0)
-            r = 60;
-        hrtimer_forward_now(timer, ns_to_ktime(NSEC_PER_SEC / r));
-        return HRTIMER_RESTART;
-    }
+    membrane_vblank_event_commit(mdev, NULL);
 
-    return HRTIMER_NORESTART;
+    r = READ_ONCE(mdev->r);
+    if (r <= 0)
+        r = 60;
+
+    hrtimer_forward_now(timer, ns_to_ktime(NSEC_PER_SEC / r));
+    return HRTIMER_RESTART;
 }
 
 int membrane_config(struct drm_device* dev, void* data, struct drm_file* file_priv) {
@@ -153,6 +170,12 @@ void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_crtc_state* state) {
 void membrane_crtc_enable(struct drm_crtc* crtc, struct drm_atomic_state* state) {
 #endif
     struct membrane_device* mdev = container_of(crtc->dev, struct membrane_device, dev);
+    int r = READ_ONCE(mdev->r);
+
+    if (r <= 0)
+        r = 60;
+
+    hrtimer_start(&mdev->vblank_timer, ns_to_ktime(NSEC_PER_SEC / r), HRTIMER_MODE_REL);
 
     membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, MEMBRANE_DPMS_ON);
 }
@@ -173,6 +196,8 @@ void membrane_crtc_disable(struct drm_crtc* crtc, struct drm_atomic_state* state
         drm_framebuffer_put(old);
 
     hrtimer_cancel(&mdev->vblank_timer);
+
+    membrane_vblank_event_commit(mdev, NULL);
 
     if (crtc->dev->master) {
         membrane_send_event(mdev, MEMBRANE_DPMS_UPDATED, MEMBRANE_DPMS_OFF);
@@ -216,18 +241,9 @@ void membrane_crtc_atomic_flush(struct drm_crtc* crtc, struct drm_atomic_state* 
     struct membrane_device* mdev = container_of(crtc->dev, struct membrane_device, dev);
     struct drm_pending_vblank_event* event = crtc->state->event;
 
-    if (READ_ONCE(mdev->pending_state) && !hrtimer_active(&mdev->vblank_timer)) {
-        int r = READ_ONCE(mdev->r);
-        if (r <= 0)
-            r = 60;
-        hrtimer_start(&mdev->vblank_timer, ns_to_ktime(NSEC_PER_SEC / r), HRTIMER_MODE_REL);
-    }
-
     if (event) {
         crtc->state->event = NULL;
-        spin_lock_irq(&crtc->dev->event_lock);
-        drm_crtc_send_vblank_event(crtc, event);
-        spin_unlock_irq(&crtc->dev->event_lock);
+        membrane_vblank_event_commit(mdev, event);
     }
 }
 

@@ -63,6 +63,8 @@ struct membrane_device {
     struct drm_framebuffer* pending_state;
 
     struct hrtimer vblank_timer;
+    struct drm_pending_vblank_event* pending_vblank_event;
+    spinlock_t vblank_lock;
 
     int w, h, r;
 
