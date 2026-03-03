@@ -72,7 +72,6 @@ public:
     MembraneNativeWindowBuffer() {
         busy = 0;
         m_wl_buffer = NULL;
-        m_num_fds = 0;
         m_meta_fd = -1;
     }
 
@@ -91,11 +90,6 @@ public:
         }
 
         native_handle_t* nh = (native_handle_t*)handle;
-        m_num_fds = nh->numFds;
-        for (int i = 0; i < m_num_fds && i < 4; i++) {
-            m_cached_fds[i] = dup(nh->data[i]);
-        }
-
         int meta_size = nh->numInts * sizeof(int);
         if (meta_size > 0) {
             m_meta_fd = memfd_create("membrane_meta", MFD_CLOEXEC);
@@ -123,12 +117,6 @@ public:
             wl_buffer_destroy(m_wl_buffer);
             m_wl_buffer = NULL;
         }
-        for (int i = 0; i < m_num_fds; i++) {
-            if (m_cached_fds[i] >= 0) {
-                close(m_cached_fds[i]);
-                m_cached_fds[i] = -1;
-            }
-        }
         if (m_meta_fd >= 0) {
             close(m_meta_fd);
             m_meta_fd = -1;
@@ -137,7 +125,6 @@ public:
             hybris_gralloc_release(ANativeWindowBuffer::handle, 1);
             ANativeWindowBuffer::handle = NULL;
         }
-        m_num_fds = 0;
         busy = 0;
     }
 
@@ -151,8 +138,6 @@ public:
 
     int busy;
     struct wl_buffer* m_wl_buffer;
-    int m_cached_fds[4];
-    int m_num_fds;
     int m_meta_fd;
 };
 
@@ -168,11 +153,12 @@ public:
         , m_allocateBuffers(true)
         , m_damage_rects(NULL)
         , m_damage_n_rects(0)
-        , m_frame_callback(NULL)
+        , m_throttle_callback(NULL)
         , m_queuedBuffer(NULL)
         , m_attached_height(0)
         , m_swap_interval(1) {
         m_wl_surface = m_wl_window->surface;
+        m_surface_version = wl_proxy_get_version((struct wl_proxy*)m_wl_surface);
 
         m_wl_window->driver_private = this;
         m_wl_window->resize_callback = resize_callback_static;
@@ -184,8 +170,8 @@ public:
     }
 
     virtual ~MembraneNativeWindow() {
-        if (m_frame_callback)
-            wl_callback_destroy(m_frame_callback);
+        if (m_throttle_callback)
+            wl_callback_destroy(m_throttle_callback);
 
         destroyBuffers();
         if (m_wl_window) {
@@ -338,17 +324,21 @@ public:
     }
 
     void finishSwap() {
-        if (m_frame_callback && m_swap_interval > 0) {
-            while (m_frame_callback) {
-                if (wl_display_dispatch(m_wl_display) == -1) {
-                    break;
-                }
+        while (m_throttle_callback) {
+            if (wl_display_dispatch(m_wl_display) == -1) {
+                membrane_err("error dispatching wayland events during throttle");
+                break;
             }
         }
 
         if (m_swap_interval > 0) {
-            m_frame_callback = wl_surface_frame(m_wl_surface);
-            wl_callback_add_listener(m_frame_callback, &s_frame_listener, this);
+            m_throttle_callback = wl_surface_frame(m_wl_surface);
+        } else {
+            m_throttle_callback = wl_display_sync(m_wl_display);
+        }
+
+        if (m_throttle_callback) {
+            wl_callback_add_listener(m_throttle_callback, &s_throttle_listener, this);
         }
 
         MembraneNativeWindowBuffer* mnb = m_queuedBuffer;
@@ -359,12 +349,10 @@ public:
             m_attached_height = m_wl_window->height;
         }
 
-        uint32_t surface_version = wl_proxy_get_version((struct wl_proxy*)m_wl_surface);
-
         if (m_damage_n_rects > 0 && m_damage_rects && m_attached_height > 0) {
             for (int i = 0; i < m_damage_n_rects; i++) {
                 const int* rect = &m_damage_rects[i * 4];
-                if (surface_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION) {
+                if (m_surface_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION) {
                     wl_surface_damage_buffer(m_wl_surface, rect[0],
                         m_attached_height - rect[1] - rect[3], rect[2], rect[3]);
                 } else {
@@ -373,7 +361,7 @@ public:
                 }
             }
         } else if (mnb) {
-            if (surface_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION) {
+            if (m_surface_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION) {
                 wl_surface_damage_buffer(m_wl_surface, 0, 0, INT32_MAX, INT32_MAX);
             } else {
                 wl_surface_damage(m_wl_surface, 0, 0, INT32_MAX, INT32_MAX);
@@ -397,6 +385,7 @@ private:
     struct wl_display* m_wl_display;
     struct zwp_linux_dmabuf_v1* m_dmabuf;
     struct wl_surface* m_wl_surface;
+    int m_surface_version;
 
     MembraneNativeWindowBuffer m_buffers[4];
     int m_bufferCount;
@@ -406,7 +395,7 @@ private:
     EGLint* m_damage_rects;
     EGLint m_damage_n_rects;
 
-    struct wl_callback* m_frame_callback;
+    struct wl_callback* m_throttle_callback;
     MembraneNativeWindowBuffer* m_queuedBuffer;
     int m_attached_height;
     int m_swap_interval;
@@ -446,17 +435,16 @@ private:
         if (!params)
             return;
 
-        for (int i = 0; i < mnb->m_num_fds; i++) {
-            int fd = dup(mnb->m_cached_fds[i]);
-            zwp_linux_buffer_params_v1_add(params, fd, i, 0, mnb->stride * 4, 0, 0);
-            close(fd);
-        }
+        native_handle_t* nh = (native_handle_t*)mnb->handle;
+        if (nh) {
+            for (int i = 0; i < nh->numFds; i++) {
+                zwp_linux_buffer_params_v1_add(params, nh->data[i], i, 0, mnb->stride * 4, 0, 0);
+            }
 
-        if (mnb->m_meta_fd >= 0) {
-            lseek(mnb->m_meta_fd, 0, SEEK_SET);
-            int meta_fd = dup(mnb->m_meta_fd);
-            zwp_linux_buffer_params_v1_add(params, meta_fd, mnb->m_num_fds, 0, 1, 0, 0);
-            close(meta_fd);
+            if (mnb->m_meta_fd >= 0) {
+                lseek(mnb->m_meta_fd, 0, SEEK_SET);
+                zwp_linux_buffer_params_v1_add(params, mnb->m_meta_fd, nh->numFds, 0, 1, 0, 0);
+            }
         }
 
         struct wl_buffer* wl_buf = zwp_linux_buffer_params_v1_create_immed(
@@ -482,24 +470,24 @@ private:
         win->handleRelease(wl_buffer);
     }
 
-    static void frame_callback_static(void* data, struct wl_callback* callback, uint32_t time) {
+    static void throttle_callback_static(void* data, struct wl_callback* callback, uint32_t time) {
         (void)time;
         MembraneNativeWindow* win = static_cast<MembraneNativeWindow*>(data);
-        if (win->m_frame_callback == callback) {
-            win->m_frame_callback = NULL;
+        if (win->m_throttle_callback == callback) {
+            win->m_throttle_callback = NULL;
         }
         wl_callback_destroy(callback);
     }
 
     static const struct wl_buffer_listener s_buffer_listener;
-    static const struct wl_callback_listener s_frame_listener;
+    static const struct wl_callback_listener s_throttle_listener;
 };
 
 const struct wl_buffer_listener MembraneNativeWindow::s_buffer_listener
     = { .release = MembraneNativeWindow::buffer_release_static };
 
-const struct wl_callback_listener MembraneNativeWindow::s_frame_listener
-    = { .done = MembraneNativeWindow::frame_callback_static };
+const struct wl_callback_listener MembraneNativeWindow::s_throttle_listener
+    = { .done = MembraneNativeWindow::throttle_callback_static };
 
 struct MembraneDisplay : public _EGLDisplay {
     struct wl_display* wl_dpy;
